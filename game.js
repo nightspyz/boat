@@ -27,7 +27,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
 const scene = new THREE.Scene();
 const FOG_NEAR = 60;
-const FOG_FAR = 380;
+const FOG_FAR = 355; // well inside the 400 m half-width of the detailed water grid
 scene.fog = new THREE.Fog(0xb8dcf3, FOG_NEAR, FOG_FAR);
 
 const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 4000);
@@ -109,22 +109,37 @@ const state = {
 
 // ===== Input =====
 const keys = new Set();
+// Joystick input from the touch controls (analog, -1..1)
+const touch = { active: false, throttle: 0, turn: 0 };
+
+// Space on the keyboard, a tap on the screen, or the pause button
+function pressSpace() {
+  if (state.shopOpen) closeShop();
+  else if (state.phase === "title" || state.phase === "summary") showBriefing();
+  else if (state.phase === "briefing") beginExpedition();
+  else togglePause();
+}
 
 window.addEventListener("keydown", (e) => {
   keys.add(e.code);
   if (e.code === "Space") {
     e.preventDefault();
     if (e.repeat) return;
-    if (state.phase === "title" || state.phase === "summary") showBriefing();
-    else if (state.phase === "briefing") beginExpedition();
-    else togglePause();
+    pressSpace();
   }
   if (e.code.startsWith("Arrow")) e.preventDefault();
   if (e.repeat) return;
   if (e.code === "KeyJ") toggleJournal();
+  if (e.code === "KeyB" && (state.phase === "briefing" || state.phase === "summary")) {
+    if (state.shopOpen) closeShop();
+    else openShop();
+  }
+  if (state.shopOpen && /^Digit[1-8]$/.test(e.code)) buyUpgrade(UPGRADES[Number(e.code.slice(5)) - 1].id);
+  if (e.code === "KeyN" && state.phase === "title") startNewGame();
   if (state.phase !== "running" || state.paused) return;
   if (e.code === "KeyF") takePhoto();
   if (e.code === "KeyE") tryEndExpedition();
+  if (e.code === "KeyX") tryDive();
 });
 window.addEventListener("keyup", (e) => keys.delete(e.code));
 window.addEventListener("blur", () => keys.clear());
@@ -204,13 +219,84 @@ function cliffAmount(x) {
 function seaBed(x, z) {
   const d = inland(x, z);
   const cm = cliffAmount(x);
-  return beachProfile(Math.min(d, 0)) * (1 - cm) + cliffBed(Math.min(d, 0)) * cm;
+  const coast = beachProfile(Math.min(d, 0)) * (1 - cm) + cliffBed(Math.min(d, 0)) * cm;
+  return Math.max(coast, islandsBed(x, z));
 }
+
+// ===== Little islands offshore =====
+const ISLANDS = [
+  { id: "palm", x: 380, z: -700, R: 40, h: 7, seed: 1.3 },
+  { id: "seal", x: -800, z: -760, R: 22, h: 6, seed: 4.1 },
+  { id: "goat", x: 1150, z: -620, R: 75, h: 22, seed: 2.7 },
+];
+const ISLAND = Object.fromEntries(ISLANDS.map((I) => [I.id, I]));
+// Distance inland from the island's shoreline (negative = out at sea); the shoreline wobbles with angle
+function islandInland(I, x, z) {
+  const dx = x - I.x;
+  const dz = z - I.z;
+  const a = Math.atan2(dz, dx);
+  const rr = I.R * (1 + 0.1 * Math.sin(3 * a + I.seed) + 0.06 * Math.sin(5 * a + 2 * I.seed));
+  return rr - Math.hypot(dx, dz);
+}
+function islandsBed(x, z) {
+  // No floor here: far from an island this is very deep, so the coast's own sea floor wins
+  let b = -99;
+  for (const I of ISLANDS) b = Math.max(b, islandInland(I, x, z) * 0.12);
+  return b;
+}
+function islandHeight(I, x, z) {
+  const t = islandInland(I, x, z);
+  if (t < 0) return Math.max(t * 0.12, -14);
+  let y = Math.min(t * 0.06, 1.2); // beach
+  y += smooth(8, I.R * 0.7, t) * I.h * (0.7 + 0.6 * fbm2(x * 0.03 + I.seed, z * 0.03));
+  return y;
+}
+// The island's highest point (found once, then remembered)
+function islandSummit(I) {
+  if (!I.summit) {
+    let best = { x: I.x, z: I.z, y: -99 };
+    for (let dx = -I.R * 0.6; dx <= I.R * 0.6; dx += 2) {
+      for (let dz = -I.R * 0.6; dz <= I.R * 0.6; dz += 2) {
+        const y = islandHeight(I, I.x + dx, I.z + dz);
+        if (y > best.y) best = { x: I.x + dx, z: I.z + dz, y };
+      }
+    }
+    I.summit = best;
+  }
+  return I.summit;
+}
+
+const ISLANDS_GLSL = /* glsl */ `
+  float islandInland(vec2 p, vec2 c, float R, float seed) {
+    vec2 d = p - c;
+    float a = atan(d.y, d.x);
+    float rr = R * (1.0 + 0.1 * sin(3.0 * a + seed) + 0.06 * sin(5.0 * a + 2.0 * seed));
+    return rr - length(d);
+  }
+  float islandsBed(vec2 p) {
+    float b = -99.0;
+    ${ISLANDS.map(
+      (I) =>
+        `b = max(b, islandInland(p, vec2(${I.x.toFixed(1)}, ${I.z.toFixed(1)}), ${I.R.toFixed(1)}, ${I.seed.toFixed(2)}) * 0.12);`
+    ).join("\n    ")}
+    return b;
+  }
+  // Distance out from the nearest island shore
+  float islandsShoreDist(vec2 p) {
+    float d = 1e5;
+    ${ISLANDS.map(
+      (I) =>
+        `d = min(d, -islandInland(p, vec2(${I.x.toFixed(1)}, ${I.z.toFixed(1)}), ${I.R.toFixed(1)}, ${I.seed.toFixed(2)}));`
+    ).join("\n    ")}
+    return d;
+  }
+`;
 
 const SHORE_GLSL = /* glsl */ `
   const float SHORE_Z = ${SHORE_Z.toFixed(1)};
   const float LH_X = ${LH_X.toFixed(1)};
   const float COVE_X = ${COVE_X.toFixed(1)};
+  ${ISLANDS_GLSL}
   float shoreHash(float p) {
     p = fract(p * 0.1031);
     p *= p + 33.33;
@@ -235,13 +321,16 @@ const SHORE_GLSL = /* glsl */ `
   float bedHeight(vec2 p) {
     float d = inlandDist(p);
     float cm = cliffAmount(p.x);
+    float coast;
     if (d < 0.0) {
       float beach = max(-0.3 + d * 0.04, -14.0);
       float cliff = d > -33.4 ? -0.3 + d * 0.35 : max(-12.0 + (d + 33.4) * 0.04, -20.0);
-      return mix(beach, cliff, cm);
+      coast = mix(beach, cliff, cm);
+    } else {
+      // Beach slope, or the rocky shelf at the foot of the cliffs
+      coast = mix(-0.3 + min(d, 120.0) * 0.025, -0.3 + min(d, 10.0) * 0.09, cm);
     }
-    // Beach slope, or the rocky shelf at the foot of the cliffs
-    return mix(-0.3 + min(d, 120.0) * 0.025, -0.3 + min(d, 10.0) * 0.09, cm);
+    return max(coast, islandsBed(p));
   }
   // Water level of the waves lapping up the beach
   float swashLevel(vec2 p, float t) {
@@ -569,21 +658,31 @@ const water = new THREE.Mesh(
         float bed = bedHeight(wp.xz);
         float depth = -bed;
         float damp = mix(0.12, 1.0, smoothstep(0.5, 8.0, depth));
+        // Calm the waves near the edge of the grid so its border never wobbles into view
+        damp *= 1.0 - smoothstep(320.0, 390.0, max(abs(position.x), abs(position.z)));
 
-        // Gerstner waves
+        // Gerstner waves. The sideways (horizontal) push is capped so crests can never fold over
+        // into loops, and each wave fades out with distance before the grid gets too coarse to draw it.
+        float steepSum = 0.0;
+        for (int i = 0; i < 4; i++) steepSum += uWaves[i].w;
+        float sideways = min(1.0, 0.6 / max(steepSum * uWaveScale * damp, 1e-4));
+        float camDist = length(wp.xz - cameraPosition.xz);
         for (int i = 0; i < 4; i++) {
           vec4 w = uWaves[i];
           vec2 d = w.xy;
           float k = w.z;
-          float s = w.w * uWaveScale * damp;
+          float len = 6.2832 / k;
+          float fade = 1.0 - smoothstep(len * 9.0, len * 22.0, camDist);
+          float s = w.w * uWaveScale * damp * fade;
           float c = sqrt(9.8 / k);
           float f = k * (dot(d, wp.xz) - c * uTime);
           float a = s / k;
+          float q = s * sideways; // horizontal steepness
           float cf = cos(f);
           float sf = sin(f);
-          disp += vec3(d.x * a * cf, a * sf, d.y * a * cf);
-          tangent += vec3(-d.x * d.x * s * sf, d.x * s * cf, -d.x * d.y * s * sf);
-          binormal += vec3(-d.x * d.y * s * sf, d.y * s * cf, -d.y * d.y * s * sf);
+          disp += vec3(d.x * (q / k) * cf, a * sf, d.y * (q / k) * cf);
+          tangent += vec3(-d.x * d.x * q * sf, d.x * s * cf, -d.x * d.y * q * sf);
+          binormal += vec3(-d.x * d.y * q * sf, d.y * s * cf, -d.y * d.y * q * sf);
         }
 
         vec3 p = wp.xyz + disp;
@@ -672,7 +771,10 @@ const water = new THREE.Mesh(
         // Reef: on the steep slopes below the cliffs, and in patches further out in the bay
         float nearReef = cliffs * smoothstep(-160.0, -110.0, dIn) * (1.0 - smoothstep(-6.0, -2.0, dIn));
         float bayReef = smoothstep(-280.0, -200.0, dIn) * (1.0 - smoothstep(-40.0, -20.0, dIn)) * 0.6;
-        float reefZone = max(nearReef, bayReef);
+        // A fringing reef around each little island
+        float dIsl = islandsShoreDist(p);
+        float islandReef = smoothstep(4.0, 12.0, dIsl) * (1.0 - smoothstep(35.0, 70.0, dIsl));
+        float reefZone = max(max(nearReef, bayReef), islandReef);
         float patchN = fbm(p * 0.07) + (vnoise(p * 0.5) - 0.5) * 0.15;
         float coral = smoothstep(0.34 + 0.08 * (1.0 - nearReef), 0.5, patchN) * reefZone;
 
@@ -822,6 +924,38 @@ water.renderOrder = 1;
 water.material.depthWrite = false;
 scene.add(water);
 
+// Far ocean: a flat ring from the edge of the detailed water out to the horizon, in the same haze
+// colour the water fades into. It covers the underwater slopes of the coast and islands that
+// would otherwise show through beyond the detailed water.
+const farOceanGeo = new THREE.RingGeometry(380, 9000, 96, 1);
+farOceanGeo.rotateX(-Math.PI / 2);
+const farOcean = new THREE.Mesh(
+  farOceanGeo,
+  new THREE.ShaderMaterial({
+    uniforms: shared,
+    depthWrite: false,
+    vertexShader: /* glsl */ `
+      varying vec3 vWorld;
+      void main() {
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vWorld = wp.xyz;
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      ${SKY_GLSL}
+      varying vec3 vWorld;
+      void main() {
+        vec3 v = normalize(cameraPosition - vWorld);
+        gl_FragColor = vec4(skyColor(normalize(vec3(-v.x + 1e-4, 0.0, -v.z))), 1.0);
+      }
+    `,
+  })
+);
+farOcean.renderOrder = 1;
+farOcean.frustumCulled = false;
+scene.add(farOcean);
+
 // Makes a material look like it's under the water when below the surface: colours fade with the
 // distance travelled through the water (red first), and it blends in less at grazing angles.
 // wag > 0 also swishes the tail end of the mesh (for fish).
@@ -906,10 +1040,28 @@ const ROCK_GLSL = /* glsl */ `
   }
 `;
 
+// Town buildings: rows of windows on every wall, dark glass by day, many lit warm at night
+const cityLights = { value: 0 };
+const CITY_WINDOWS_GLSL = /* glsl */ `
+  {
+    vec3 wn = normalize(vWorldN);
+    if (abs(wn.y) < 0.5) {
+      vec2 along = normalize(vec2(-wn.z, wn.x));
+      float u = dot(vCloudWorld.xz, along) / 2.8;
+      float v = vCloudWorld.y / 3.2;
+      vec2 f = fract(vec2(u, v));
+      float win = step(0.28, f.x) * step(f.x, 0.72) * step(0.32, f.y) * step(f.y, 0.78);
+      float lit = step(0.42, hash3(vec3(floor(u), floor(v), floor(dot(vCloudWorld.xz, wn.xz)))));
+      gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.1, 0.13, 0.17), win * 0.65 * (1.0 - uCityLights));
+      gl_FragColor.rgb += vec3(1.0, 0.76, 0.42) * win * lit * uCityLights * 1.6;
+    }
+  }
+`;
+
 // opts.terrain: per-vertex rock mask (aRock) on the cliffs; opts.stack: sea stacks (all limestone);
-// opts.rock: boulders (their own instance colour with grain)
+// opts.rock: boulders (their own instance colour with grain); opts.city: town buildings with windows
 function applyHaze(material, opts = {}) {
-  const mode = opts.terrain ? "terrain" : opts.stack ? "stack" : opts.rock ? "rock" : "plain";
+  const mode = opts.terrain ? "terrain" : opts.stack ? "stack" : opts.rock ? "rock" : opts.city ? "city" : "plain";
   material.customProgramCacheKey = () => "haze-" + mode;
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uHazeNear = haze.uHazeNear;
@@ -922,18 +1074,22 @@ function applyHaze(material, opts = {}) {
     shader.uniforms.uSunColor = shared.uSunColor;
     shader.uniforms.uTime = shared.uTime;
 
-    const rockValue = mode === "terrain" ? "aRock" : mode === "plain" ? "0.0" : "1.0";
+    const rockValue = mode === "terrain" ? "aRock" : mode === "plain" || mode === "city" ? "0.0" : "1.0";
+    shader.uniforms.uCityLights = cityLights;
     shader.vertexShader =
       (mode === "terrain" ? "attribute float aRock;\n" : "") +
-      "varying vec3 vCloudWorld;\nvarying float vRock;\n" +
+      "varying vec3 vCloudWorld;\nvarying float vRock;\nvarying vec3 vWorldN;\n" +
       shader.vertexShader.replace(
         "#include <fog_vertex>",
         `#include <fog_vertex>
         vec4 cloudPos = vec4(transformed, 1.0);
+        vec3 worldN = objectNormal;
         #ifdef USE_INSTANCING
           cloudPos = instanceMatrix * cloudPos;
+          worldN = mat3(instanceMatrix) * worldN;
         #endif
         vCloudWorld = (modelMatrix * cloudPos).xyz;
+        vWorldN = mat3(modelMatrix) * worldN;
         vRock = ${rockValue};`
       );
 
@@ -944,7 +1100,7 @@ function applyHaze(material, opts = {}) {
     shader.fragmentShader =
       "uniform float uHazeNear;\nuniform float uHazeFar;\nuniform float uHazeMax;\n" +
       "uniform vec3 uSunDir;\nuniform float uSunVis;\nuniform vec3 uSunColor;\nuniform float uTime;\n" +
-      "varying vec3 vCloudWorld;\n" +
+      "varying vec3 vCloudWorld;\nvarying vec3 vWorldN;\nuniform float uCityLights;\n" +
       CLOUD_GLSL +
       SHORE_GLSL +
       ROCK_GLSL +
@@ -988,6 +1144,7 @@ function applyHaze(material, opts = {}) {
           `vec3 wp = vCloudWorld;
         float cs = cloudShadow(wp, uSunDir);
         gl_FragColor.rgb *= 1.0 - 0.45 * (1.0 - cs) * uSunVis;
+        ${mode === "city" ? CITY_WINDOWS_GLSL : ""}
 
         // Beach: sand darkened where the waves have just washed over it
         float sandMask = (1.0 - smoothstep(2.5, 4.0, wp.y)) * (1.0 - smoothstep(130.0, 160.0, inlandDist(wp.xz)));
@@ -1024,6 +1181,51 @@ function terrace(y, step) {
   return (i + smooth(0, 0.45, s - i)) * step;
 }
 
+// ===== River: comes down a valley east of the lighthouse and forks into two mouths through a swampy delta =====
+// Points are [x, d] with d = distance inland from the shoreline at that x
+const shoreZAt = (x) => SHORE_Z + headland(x) + (noise1(x * 0.008) - 0.5) * 60;
+const RIVER_PATHS = [
+  { w: 14, pts: [[830, 900], [805, 640], [822, 420], [800, 190]] }, // main river
+  { w: 10, pts: [[800, 190], [762, 110], [722, 40], [700, -20]] }, // western mouth
+  { w: 10, pts: [[800, 190], [848, 115], [888, 45], [912, -20]] }, // eastern mouth
+];
+const RIVER_SEGS = [];
+for (const path of RIVER_PATHS) {
+  const p = path.pts.map(([x, d]) => [x, shoreZAt(x) - d]);
+  for (let i = 0; i < p.length - 1; i++) RIVER_SEGS.push({ ax: p[i][0], az: p[i][1], bx: p[i + 1][0], bz: p[i + 1][1], w: path.w });
+}
+const SWAMP = { x: 800, z: shoreZAt(800) - 95, r: 160 };
+
+// Distance from the edge of the nearest river channel (negative = in the water)
+function riverDist(x, z) {
+  let best = 1e9;
+  for (const s of RIVER_SEGS) {
+    const dx = s.bx - s.ax;
+    const dz = s.bz - s.az;
+    const t = clamp(((x - s.ax) * dx + (z - s.az) * dz) / (dx * dx + dz * dz), 0, 1);
+    const dist = Math.hypot(x - (s.ax + dx * t), z - (s.az + dz * t)) - s.w / 2;
+    if (dist < best) best = dist;
+  }
+  return best;
+}
+// 1 inside the swampy delta between the two mouths, fading out at its edges
+function swampMask(x, z) {
+  const d = inland(x, z);
+  return (1 - smooth(SWAMP.r * 0.65, SWAMP.r, Math.hypot(x - SWAMP.x, z - SWAMP.z))) * smooth(4, 18, d);
+}
+const lerp = (a, b, t) => a + (b - a) * t;
+
+// Cuts the river valley, its channels and the swamp into the land
+function carveRiver(x, z, y) {
+  const r = riverDist(x, z);
+  if (r > 220) return y;
+  const plain = 0.9 + Math.max(0, r) * 0.025; // a low floodplain along the river
+  y = Math.min(y, lerp(plain, y, smooth(40, 220, r)));
+  const sw = swampMask(x, z);
+  if (sw > 0) y = lerp(y, 0.32 + (fbm2(x * 0.05, z * 0.05) - 0.5) * 0.9, sw); // hummocks and pools
+  return Math.min(y, lerp(-1.3, y, smooth(-1, 5, r))); // the channel itself
+}
+
 function landHeight(x, z) {
   const d = inland(x, z);
   if (d < 0) return seaBed(x, z);
@@ -1035,14 +1237,17 @@ function landHeight(x, z) {
 
   // Limestone cliff rising from a rocky shelf at the waterline, cut by gullies and buttresses
   const cliffH = 32 + 26 * noise1(x * 0.01 + 3.1);
-  const gully = (noise1(x * 0.07 + 11) - 0.5) * 16 + (noise1(x * 0.23 + 3) - 0.5) * 5;
-  const rise = smooth(12, 30, d + gully + (fbm2(x * 0.05, z * 0.05) - 0.5) * 6);
+  // Gullies and buttresses kept broad enough (≥ ~15 m) for the 5 m terrain grid to draw smoothly,
+  // otherwise the cliff edge breaks up into jagged sawtooth spikes on the horizon
+  const gully = (noise1(x * 0.03 + 11) - 0.5) * 16 + (noise1(x * 0.065 + 3) - 0.5) * 5;
+  const rise = smooth(12, 30, d + gully + (noise2(x * 0.04, z * 0.04) - 0.5) * 6);
   const step = 3.5 + 2 * noise1(x * 0.02 + 1.7);
   let cliffY = -0.3 + Math.min(d, 10) * 0.09 + terrace(cliffH * rise, step);
   cliffY += smooth(45, 300, d) * (8 + 50 * fbm2(x * 0.0025, z * 0.0025));
   cliffY += (fbm2(x * 0.08, z * 0.08) - 0.5) * 1.5 * smooth(8, 20, d);
 
-  return coveY + (cliffY - coveY) * cliffAmount(x);
+  const y = coveY + (cliffY - coveY) * cliffAmount(x);
+  return x > 450 && x < 1150 ? carveRiver(x, z, y) : y;
 }
 
 function buildShoreline() {
@@ -1067,6 +1272,9 @@ function buildShoreline() {
   const rock = new THREE.Color(0x7a7a72);
   const plateau = new THREE.Color(0xd6c29c);
   const scrub = new THREE.Color(0x7b7a48);
+  const lush = new THREE.Color(0x4f7a32);
+  const swampCol = new THREE.Color(0x4a5230);
+  const mud = new THREE.Color(0x5e5238);
   const colors = new Float32Array(pos.count * 3);
   const rockMask = new Float32Array(pos.count);
   const c = new THREE.Color();
@@ -1083,6 +1291,13 @@ function buildShoreline() {
     c.lerp(plateau, smooth(1, 4, y) * cm);
     c.lerp(scrub, smooth(0.55, 0.8, noise2(x * 0.06, z * 0.06)) * smooth(20, 40, y) * cm * 0.6);
     c.lerp(rock, Math.max(smooth(60, 100, y), 1 - smooth(0.6, 0.85, ny)) * smooth(1, 4, y) * (1 - cm));
+    if (x > 450 && x < 1150) {
+      // Lush floodplain, muddy banks and dark swamp along the river
+      const r = riverDist(x, z);
+      c.lerp(lush, (1 - smooth(20, 90, r)) * smooth(0.6, 1.2, y) * 0.8);
+      c.lerp(swampCol, swampMask(x, z) * 0.85);
+      c.lerp(mud, 1 - smooth(0, 7, r));
+    }
     c.multiplyScalar(0.88 + 0.24 * noise2(x * 0.05, z * 0.05));
     colors[i * 3] = c.r;
     colors[i * 3 + 1] = c.g;
@@ -1541,7 +1756,8 @@ function spawnPod() {
   const side = Math.random() < 0.5 ? -1 : 1;
   const count = 3 + Math.floor(Math.random() * 3);
   pod.active = true;
-  pod.life = rand(25, 40);
+  pod.life = rand(10, 18); // how long they stay curious about the boat
+  pod.awayYaw = null;
   for (let i = 0; i < count; i++) {
     const d = dolphins[i];
     d.active = true;
@@ -1572,7 +1788,15 @@ function updateDolphins(dt, t) {
   const rx = Math.cos(b.yaw);
   const rz = -Math.sin(b.yaw);
   pod.life -= dt;
+  // They lose interest after a while, or straight away if the boat outruns them
+  const podDist = dolphins.some((d) => d.active && Math.hypot(d.x - b.x, d.z - b.z) < 120);
+  if (!podDist && pod.life > 0) pod.life = 0;
   const leaving = pod.life < 0;
+  if (leaving && pod.awayYaw === null) {
+    // Swim off in a direction roughly away from the boat
+    const lead = dolphins.find((d) => d.active);
+    pod.awayYaw = Math.atan2(-(lead.x - b.x), -(lead.z - b.z)) + Math.PI + rand(-0.8, 0.8);
+  }
   const JUMP = 1.3;
   let anyActive = false;
 
@@ -1586,15 +1810,16 @@ function updateDolphins(dt, t) {
       tx = b.x + rx * d.right + fx * d.fwd;
       tz = b.z + rz * d.right + fz * d.fwd;
     } else {
-      tx = d.x - Math.sin(d.yaw) * 100;
-      tz = d.z - Math.cos(d.yaw) * 100;
+      tx = d.x - Math.sin(pod.awayYaw) * 100;
+      tz = d.z - Math.cos(pod.awayYaw) * 100;
     }
     const dx = tx - d.x;
     const dz = tz - d.z;
     const dist = Math.hypot(dx, dz);
     const desired = Math.atan2(-dx, -dz);
     d.yaw += clamp(wrapAngle(desired - d.yaw), -1.5 * dt, 1.5 * dt);
-    const targetSpeed = leaving ? 12 : clamp(dist * 0.6, 6, Math.abs(b.speed) + 7);
+    // Top speed is capped, so a fast boat leaves them behind
+    const targetSpeed = leaving ? 10 : clamp(dist * 0.6, 6, Math.min(Math.abs(b.speed) + 5, 11));
     d.speed += (targetSpeed - d.speed) * (1 - Math.exp(-dt * 1.5));
     d.x -= Math.sin(d.yaw) * d.speed * dt;
     d.z -= Math.cos(d.yaw) * d.speed * dt;
@@ -1607,7 +1832,7 @@ function updateDolphins(dt, t) {
     }
     let rel = -3;
     let vy = 0;
-    if (d.phase < JUMP && pod.life > -4) {
+    if (d.phase < JUMP && pod.life > -10) {
       const u = d.phase / JUMP;
       rel = -1.6 + 3.2 * Math.sin(Math.PI * u);
       vy = ((3.2 * Math.PI) / JUMP) * Math.cos(Math.PI * u);
@@ -1619,7 +1844,7 @@ function updateDolphins(dt, t) {
     d.mesh.position.set(d.x, h + rel, d.z);
     d.mesh.rotation.set(Math.atan2(vy, Math.max(d.speed, 4)), d.yaw, 0);
 
-    if (pod.life < -8) {
+    if (pod.life < -16) {
       d.active = false;
       d.mesh.visible = false;
     }
@@ -2309,6 +2534,32 @@ const ACCEL = 9;
 const DRAG = 0.35;
 const TURN_RATE = 0.9; // rad/s at full steering authority
 
+// How much room the boat has at a point, in metres: negative means blocked
+// (water under 1.5 m deep, the coast, a sea stack or the pier)
+function clearance(x, z) {
+  let c = Math.min(-seaBed(x, z) - 1.5, -inland(x, z) - 3);
+  for (const s of seaStacks) c = Math.min(c, Math.hypot(x - s.x, z - s.z) - (s.r * 1.6 + 3));
+  const pier = Math.max(Math.abs(x - harbor.pierX) - 4, harbor.pierZ0 - z, z - (harbor.pierZ1 + 3));
+  return Math.min(c, pier);
+}
+// Direction in which the clearance grows (toward open water), and how steeply (mag, per metre)
+const clearanceVec = { x: 0, z: 1, mag: 0 };
+function clearanceDir(x, z) {
+  const e = 1;
+  const gx = clearance(x + e, z) - clearance(x - e, z);
+  const gz = clearance(x, z + e) - clearance(x, z - e);
+  const len = Math.hypot(gx, gz);
+  clearanceVec.mag = len / (2 * e);
+  if (len < 1e-6) {
+    clearanceVec.x = 0;
+    clearanceVec.z = 1; // default: out to sea
+  } else {
+    clearanceVec.x = gx / len;
+    clearanceVec.z = gz / len;
+  }
+  return clearanceVec;
+}
+
 function updateBoat(dt, t, controllable) {
   const b = state.boat;
   let throttle = 0;
@@ -2316,41 +2567,70 @@ function updateBoat(dt, t, controllable) {
   if (controllable) {
     throttle = (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) - (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0);
     turn = (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0) - (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0);
+    if (touch.active) {
+      throttle = touch.throttle;
+      turn = touch.turn;
+    }
   }
   if (expedition.fuel <= 0) throttle = 0; // engine dead: drift and steer only
   b.throttle = throttle;
 
   b.speed += throttle * ACCEL * dt;
   b.speed -= b.speed * DRAG * dt;
-  b.speed = clamp(b.speed, MAX_REVERSE, MAX_FORWARD);
+  // In rough seas an ordinary hull has to slow down; the reinforced hull keeps full speed
+  const topSpeed = owned("hull") ? MAX_FORWARD : MAX_FORWARD * (1 - 0.45 * wx.storm);
+  b.speed = clamp(b.speed, MAX_REVERSE, topSpeed);
 
-  // Rudder only works while moving
+  // Rudder works best while moving, but the boat can always pivot slowly (so it can turn away from a wall)
   const steer = clamp(b.speed / 6, -1, 1);
-  b.yaw += turn * TURN_RATE * steer * dt;
+  const pivot = Math.abs(steer) < 0.35 ? (b.speed < 0 ? -0.35 : 0.35) : steer;
+  b.yaw += turn * TURN_RATE * pivot * dt;
 
   const fx = -Math.sin(b.yaw);
   const fz = -Math.cos(b.yaw);
   const rx = Math.cos(b.yaw);
   const rz = -Math.sin(b.yaw);
-  const prevX = b.x;
-  const prevZ = b.z;
-  b.x += fx * b.speed * dt;
-  b.z += fz * b.speed * dt;
 
-  // Wind pushes the boat
+  // Where the boat wants to go this frame: its own motion plus wind drift
+  let mx = fx * b.speed * dt;
+  let mz = fz * b.speed * dt;
   if (controllable) {
-    b.x += Math.cos(weather.windAngle) * weather.windSpeed * 0.05 * dt;
-    b.z += Math.sin(weather.windAngle) * weather.windSpeed * 0.05 * dt;
+    mx += Math.cos(weather.windAngle) * weather.windSpeed * 0.05 * dt;
+    mz += Math.sin(weather.windAngle) * weather.windSpeed * 0.05 * dt;
   }
 
-  // Don't run aground in shallow water or hit the cliffs and sea stacks: bump back gently
-  const tooShallow = seaBed(b.x, b.z) > -1.5 || inland(b.x, b.z) > -3;
-  const hitStack = seaStacks.some((s) => Math.hypot(b.x - s.x, b.z - s.z) < s.r * 1.6 + 3);
-  const hitPier = Math.abs(b.x - harbor.pierX) < 4 && b.z > harbor.pierZ0 && b.z < harbor.pierZ1 + 3;
-  if (tooShallow || hitStack || hitPier) {
-    b.x = prevX;
-    b.z = prevZ;
-    b.speed *= -0.3;
+  // Shallows, cliffs, sea stacks and the pier: slide along them instead of getting stuck
+  if (clearance(b.x + mx, b.z + mz) >= 0) {
+    b.x += mx;
+    b.z += mz;
+  } else {
+    const g = clearanceDir(b.x + mx, b.z + mz);
+    const into = mx * g.x + mz * g.z;
+    let nx = b.x + (into < 0 ? mx - g.x * into : mx);
+    let nz = b.z + (into < 0 ? mz - g.z * into : mz);
+    // On a curved edge the slide lands a hair inside it: nudge it back out onto the edge
+    const c = clearance(nx, nz);
+    if (c < 0) {
+      const g2 = clearanceDir(nx, nz);
+      const push = (-c + 0.01) / Math.max(g2.mag, 0.02);
+      if (push < 1) {
+        nx += g2.x * push;
+        nz += g2.z * push;
+      }
+    }
+    if (clearance(nx, nz) >= -0.01) {
+      b.x = nx;
+      b.z = nz;
+      b.speed *= 1 - 1.5 * dt; // scraping along slows you a little
+    } else {
+      b.speed *= 1 - 4 * dt; // head-on: stop, but don't bounce
+    }
+  }
+  // If the boat is ever inside a blocked spot (waves, wind, spawning), ease it back out to open water
+  if (clearance(b.x, b.z) < 0) {
+    const g = clearanceDir(b.x, b.z);
+    b.x += g.x * 4 * dt;
+    b.z += g.z * 4 * dt;
   }
 
   // Float on the waves: sample bow, stern, port and starboard
@@ -2377,16 +2657,82 @@ const camTarget = new THREE.Vector3();
 const camDesired = new THREE.Vector3();
 const tmpVec = new THREE.Vector3();
 
+// Orbit camera: drag to rotate around the boat, scroll or pinch to zoom, C to swing back behind it
+const ORBIT_DEFAULT = { yaw: 0, pitch: 0.28, dist: 14.6 };
+const orbit = { ...ORBIT_DEFAULT, active: 0 };
+
 function updateCamera(dt, snap) {
   const b = state.boat;
-  const fx = -Math.sin(b.yaw);
-  const fz = -Math.cos(b.yaw);
-  camDesired.set(b.x - fx * 14, b.y + 5.5, b.z - fz * 14);
+  const h = b.yaw + orbit.yaw;
+  const fx = -Math.sin(h);
+  const fz = -Math.cos(h);
+  const horiz = orbit.dist * Math.cos(orbit.pitch);
+  camDesired.set(b.x - fx * horiz, b.y + 1.5 + orbit.dist * Math.sin(orbit.pitch), b.z - fz * horiz);
+  // Never dip under the waves
+  camDesired.y = Math.max(camDesired.y, waveHeight(camDesired.x, camDesired.z, shared.uTime.value) + 1.2);
+  orbit.active = Math.max(0, orbit.active - dt);
   if (snap) camera.position.copy(camDesired);
-  else camera.position.lerp(camDesired, 1 - Math.exp(-dt * 3));
-  camTarget.set(b.x + fx * 4, b.y + 1.5, b.z + fz * 4);
+  else camera.position.lerp(camDesired, 1 - Math.exp(-dt * (orbit.active > 0 ? 12 : 3)));
+  // Look just past the boat; with the camera low, the gaze tilts up so you can see the sky
+  camTarget.set(b.x + fx * 4, b.y + 1.5 + Math.max(0, ORBIT_DEFAULT.pitch - orbit.pitch) * 22, b.z + fz * 4);
   camera.lookAt(camTarget);
 }
+
+function resetOrbit() {
+  Object.assign(orbit, ORBIT_DEFAULT);
+  orbit.active = 0.6;
+}
+
+// Mouse and touch dragging on the 3D view (the joystick and buttons are separate elements)
+const orbitPointers = new Map();
+let pinchStart = null;
+let dragMoved = 0; // pixels moved during the current press, to tell a tap from a drag
+canvas.addEventListener("pointerdown", (e) => {
+  orbitPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  canvas.setPointerCapture(e.pointerId);
+  if (orbitPointers.size === 1) dragMoved = 0;
+  if (orbitPointers.size === 2) {
+    const [a, b] = [...orbitPointers.values()];
+    pinchStart = { dist: Math.hypot(a.x - b.x, a.y - b.y), zoom: orbit.dist };
+  }
+});
+canvas.addEventListener("pointermove", (e) => {
+  const prev = orbitPointers.get(e.pointerId);
+  if (!prev) return;
+  const dx = e.clientX - prev.x;
+  const dy = e.clientY - prev.y;
+  prev.x = e.clientX;
+  prev.y = e.clientY;
+  dragMoved += Math.abs(dx) + Math.abs(dy);
+  if (orbitPointers.size === 1) {
+    orbit.yaw -= dx * 0.006;
+    orbit.pitch = clamp(orbit.pitch + dy * 0.005, 0.02, 1.35);
+  } else if (orbitPointers.size === 2 && pinchStart) {
+    const [a, b] = [...orbitPointers.values()];
+    const dist = Math.hypot(a.x - b.x, a.y - b.y);
+    orbit.dist = clamp((pinchStart.zoom * pinchStart.dist) / Math.max(dist, 1), 6, 60);
+  }
+  orbit.active = 0.5;
+});
+const endOrbitPointer = (e) => {
+  orbitPointers.delete(e.pointerId);
+  if (orbitPointers.size < 2) pinchStart = null;
+};
+canvas.addEventListener("pointerup", endOrbitPointer);
+canvas.addEventListener("pointercancel", endOrbitPointer);
+canvas.addEventListener(
+  "wheel",
+  (e) => {
+    e.preventDefault();
+    orbit.dist = clamp(orbit.dist * (1 + e.deltaY * 0.001), 6, 60);
+    orbit.active = 0.5;
+  },
+  { passive: false }
+);
+canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+window.addEventListener("keydown", (e) => {
+  if (e.code === "KeyC" && !e.repeat) resetOrbit();
+});
 
 // ===== Harbor =====
 // A wooden pier in the sandy cove: every expedition starts and ends here.
@@ -2484,6 +2830,10 @@ WRECK.y = seaBed(WRECK.x, WRECK.z);
 const GLOW = { x: 1550 };
 GLOW.z = spotAtDepth(GLOW.x, 7);
 GLOW.y = seaBed(GLOW.x, GLOW.z) + 0.8;
+// Far out below the western cliffs, too deep to see from the surface: only sonar finds it
+const DEEP_WRECK = { x: -2100 };
+DEEP_WRECK.z = spotAtDepth(DEEP_WRECK.x, 18);
+DEEP_WRECK.y = seaBed(DEEP_WRECK.x, DEEP_WRECK.z);
 
 function buildWreck() {
   const g = new THREE.Group();
@@ -2517,6 +2867,25 @@ function buildWreck() {
 }
 scene.add(buildWreck());
 
+function buildDeepWreck() {
+  const g = new THREE.Group();
+  const hull = applyUnderwater(new THREE.MeshStandardMaterial({ color: 0x3a3430, roughness: 0.95 }));
+  g.add(new THREE.Mesh(new THREE.BoxGeometry(6, 4, 26), hull));
+  const bow = new THREE.Mesh(new THREE.ConeGeometry(4.2, 7, 4), hull);
+  bow.rotation.set(-Math.PI / 2, Math.PI / 4, 0);
+  bow.scale.set(0.72, 1, 0.5);
+  bow.position.z = -16.5;
+  g.add(bow);
+  const funnel = new THREE.Mesh(new THREE.CylinderGeometry(1, 1.2, 4, 10), hull);
+  funnel.position.set(0, 4, 6);
+  funnel.rotation.z = 0.5;
+  g.add(funnel);
+  g.position.set(DEEP_WRECK.x, DEEP_WRECK.y + 1.5, DEEP_WRECK.z);
+  g.rotation.set(0.05, -0.6, -0.4);
+  return g;
+}
+scene.add(buildDeepWreck());
+
 function buildGlow() {
   const core = new THREE.Mesh(
     new THREE.IcosahedronGeometry(0.7, 1),
@@ -2542,70 +2911,1384 @@ function buildGlow() {
 }
 const strangeGlow = buildGlow();
 
+// ===== Islands: terrain, trees and animals =====
+function randomOnIsland(I, tMin, tMax) {
+  for (let k = 0; k < 200; k++) {
+    const a = rand(0, Math.PI * 2);
+    const r = rand(0, I.R * 1.2);
+    const x = I.x + Math.cos(a) * r;
+    const z = I.z + Math.sin(a) * r;
+    const t = islandInland(I, x, z);
+    if (t >= tMin && t <= tMax) return { x, z, y: islandHeight(I, x, z) };
+  }
+  return { x: I.x, z: I.z, y: islandHeight(I, I.x, I.z) };
+}
+
+function buildIslandTerrain(I, rocky) {
+  const size = 2 * (I.R * 1.25 + 60);
+  const geo = new THREE.PlaneGeometry(size, size, 110, 110);
+  geo.rotateX(-Math.PI / 2);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    pos.setY(i, islandHeight(I, pos.getX(i) + I.x, pos.getZ(i) + I.z));
+  }
+  geo.computeVertexNormals();
+  const sand = new THREE.Color(0xe6d6ab);
+  const wet = new THREE.Color(0x9a8c6c);
+  const grass = new THREE.Color(rocky ? 0x8f8a78 : I.id === "goat" ? 0x8c8f4c : 0x6b8a3a);
+  const rock = new THREE.Color(0xb9b1a0);
+  const colors = new Float32Array(pos.count * 3);
+  const c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i) + I.x;
+    const y = pos.getY(i);
+    const z = pos.getZ(i) + I.z;
+    c.copy(wet).lerp(sand, smooth(-0.5, 0.8, y));
+    c.lerp(grass, smooth(1.2, 2.5, y));
+    c.lerp(rock, Math.max(1 - smooth(0.7, 0.9, geo.attributes.normal.getY(i)), rocky ? smooth(0.3, 1.2, y) : 0));
+    c.multiplyScalar(0.88 + 0.24 * noise2(x * 0.08, z * 0.08));
+    colors.set([c.r, c.g, c.b], i * 3);
+  }
+  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  const mesh = new THREE.Mesh(geo, applyHaze(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 })));
+  mesh.position.set(I.x, 0, I.z);
+  return mesh;
+}
+
+const islandStoneMat = applyHaze(new THREE.MeshStandardMaterial({ color: 0xd9d1bf, roughness: 0.9 }));
+const palmTrunkMat = applyHaze(new THREE.MeshStandardMaterial({ color: 0x8b6b4a, roughness: 0.9 }));
+const leafMat = applyHaze(new THREE.MeshStandardMaterial({ color: 0x3f7a2e, roughness: 0.8, side: THREE.DoubleSide }));
+const pineMat = applyHaze(new THREE.MeshStandardMaterial({ color: 0x2f5a2a, roughness: 0.9, flatShading: true }));
+
+// Palm frond: a strip that arches out and droops, narrowing to the tip
+const frondGeo = (() => {
+  const g = new THREE.PlaneGeometry(1.0, 4.2, 1, 8);
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const t = (p.getY(i) + 2.1) / 4.2;
+    p.setXYZ(i, p.getX(i) * (1 - t * 0.75), t * 0.9 - t * t * 2.0, t * 4.2);
+  }
+  g.computeVertexNormals();
+  return g;
+})();
+
+const swayingCrowns = [];
+function buildPalm(x, y, z, height) {
+  const g = new THREE.Group();
+  const lean = rand(0.8, 2.2);
+  const leanDir = rand(0, Math.PI * 2);
+  const lx = Math.cos(leanDir) * lean;
+  const lz = Math.sin(leanDir) * lean;
+  const curve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(lx * 0.2, height * 0.4, lz * 0.2),
+    new THREE.Vector3(lx * 0.6, height * 0.75, lz * 0.6),
+    new THREE.Vector3(lx, height, lz),
+  ]);
+  g.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 10, 0.2, 6), palmTrunkMat));
+  const crown = new THREE.Group();
+  crown.position.set(lx, height, lz);
+  for (let k = 0; k < 8; k++) {
+    const f = new THREE.Mesh(frondGeo, leafMat);
+    f.rotation.y = (k / 8) * Math.PI * 2 + rand(-0.2, 0.2);
+    f.rotation.x = rand(-0.25, 0.1);
+    crown.add(f);
+  }
+  g.add(crown);
+  g.position.set(x, y - 0.2, z);
+  swayingCrowns.push({ crown, phase: rand(0, 6) });
+  return g;
+}
+
+function buildPine(x, y, z, height) {
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.28, height, 6), palmTrunkMat);
+  trunk.position.y = height / 2;
+  g.add(trunk);
+  for (let k = 0; k < 3; k++) {
+    const blob = new THREE.Mesh(new THREE.IcosahedronGeometry(rand(1.8, 2.6), 0), pineMat);
+    blob.scale.set(1.3, 0.5, 1.3);
+    blob.position.set(rand(-1, 1), height + rand(-0.3, 0.5), rand(-1, 1));
+    g.add(blob);
+  }
+  g.position.set(x, y - 0.2, z);
+  return g;
+}
+
+function buildBush(x, y, z) {
+  const b = new THREE.Mesh(new THREE.IcosahedronGeometry(rand(0.6, 1.2), 0), pineMat);
+  b.scale.y = 0.7;
+  b.position.set(x, y + 0.3, z);
+  return b;
+}
+
+// --- Seals on Seal Rock ---
+const sealMat = applyHaze(new THREE.MeshStandardMaterial({ color: 0x5f5a55, roughness: 0.5 }));
+const seals = [];
+function buildSeal() {
+  const g = new THREE.Group();
+  const bodyGeo = new THREE.SphereGeometry(1, 12, 8);
+  bodyGeo.scale(0.45, 0.38, 1.1);
+  const body = new THREE.Mesh(bodyGeo, sealMat);
+  body.position.y = 0.35;
+  g.add(body);
+  const head = new THREE.Group();
+  head.position.set(0, 0.55, -0.95);
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.27, 10, 8), sealMat);
+  skull.scale.z = 1.3;
+  head.add(skull);
+  g.add(head);
+  for (const side of [-1, 1]) {
+    const flipper = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.05, 0.25), sealMat);
+    flipper.position.set(side * 0.45, 0.1, -0.4);
+    g.add(flipper);
+  }
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.3), sealMat);
+  tail.position.set(0, 0.12, 1.15);
+  g.add(tail);
+  return { g, head };
+}
+
+// --- Goats on Goat Island ---
+const goatMat = applyHaze(new THREE.MeshStandardMaterial({ color: 0xe9e2d4, roughness: 0.9 }));
+const goatDarkMat = applyHaze(new THREE.MeshStandardMaterial({ color: 0x6b5438, roughness: 0.9 }));
+const goats = [];
+function buildGoat(mat) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.45, 1.0), mat);
+  body.position.y = 0.75;
+  g.add(body);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.3, 0.42), mat);
+  head.position.set(0, 1.1, -0.6);
+  head.rotation.x = 0.3;
+  g.add(head);
+  for (const side of [-1, 1]) {
+    const horn = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.3, 5), goatDarkMat);
+    horn.position.set(side * 0.08, 1.33, -0.52);
+    horn.rotation.x = 0.6;
+    g.add(horn);
+  }
+  const legs = [];
+  for (const [lx, lz] of [[-0.18, -0.38], [0.18, -0.38], [-0.18, 0.38], [0.18, 0.38]]) {
+    const pivot = new THREE.Group();
+    pivot.position.set(lx, 0.55, lz);
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.55, 0.1), mat);
+    leg.position.y = -0.27;
+    pivot.add(leg);
+    g.add(pivot);
+    legs.push(pivot);
+  }
+  return { g, legs };
+}
+
+// --- Sea turtles swimming around Palm Islet ---
+const turtleShellMat = applyUnderwater(new THREE.MeshStandardMaterial({ color: 0x5d6b3a, roughness: 0.6 }));
+const turtleSkinMat = applyUnderwater(new THREE.MeshStandardMaterial({ color: 0x9a9670, roughness: 0.7 }));
+const turtles = [];
+function buildTurtle() {
+  const g = new THREE.Group();
+  g.rotation.order = "YXZ";
+  const shellGeo = new THREE.SphereGeometry(0.6, 12, 8);
+  shellGeo.scale(1, 0.35, 1.25);
+  g.add(new THREE.Mesh(shellGeo, turtleShellMat));
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 6), turtleSkinMat);
+  head.position.set(0, 0.02, -0.85);
+  g.add(head);
+  const flippers = [];
+  for (const [side, front] of [[-1, 1], [1, 1], [-1, 0], [1, 0]]) {
+    const pivot = new THREE.Group();
+    pivot.position.set(side * 0.5, 0, front ? -0.35 : 0.5);
+    const f = new THREE.Mesh(new THREE.BoxGeometry(front ? 0.7 : 0.35, 0.04, front ? 0.28 : 0.2), turtleSkinMat);
+    f.position.x = side * (front ? 0.35 : 0.17);
+    pivot.add(f);
+    g.add(pivot);
+    flippers.push({ pivot, side, front });
+  }
+  return { g, flippers };
+}
+
+function buildIslands() {
+  // Palm Islet: palms, bushes, and turtles in the lagoon around it
+  const palm = ISLAND.palm;
+  scene.add(buildIslandTerrain(palm, false));
+  for (let k = 0; k < 9; k++) {
+    const p = randomOnIsland(palm, 5, palm.R * 0.7);
+    scene.add(buildPalm(p.x, p.y, p.z, rand(6, 10)));
+  }
+  for (let k = 0; k < 10; k++) {
+    const p = randomOnIsland(palm, 8, palm.R);
+    scene.add(buildBush(p.x, p.y, p.z));
+  }
+  for (let k = 0; k < 2; k++) {
+    const t = buildTurtle();
+    scene.add(t.g);
+    turtles.push({ ...t, angle: k * Math.PI, radius: palm.R + 26 + k * 10, speed: 0.03 + k * 0.01, phase: k * 2 });
+  }
+
+  // Seal Rock: bare rock with a colony of seals lounging on it
+  const sealRock = ISLAND.seal;
+  scene.add(buildIslandTerrain(sealRock, true));
+  for (let k = 0; k < 6; k++) {
+    const p = randomOnIsland(sealRock, 1.5, 10);
+    const s = buildSeal();
+    s.g.position.set(p.x, p.y, p.z);
+    s.g.rotation.y = rand(0, Math.PI * 2);
+    scene.add(s.g);
+    seals.push({ ...s, phase: rand(0, 6) });
+  }
+
+  // Goat Island: pines, goats, and old ruins on the hilltop with a statue
+  const goat = ISLAND.goat;
+  scene.add(buildIslandTerrain(goat, false));
+  for (let k = 0; k < 14; k++) {
+    const p = randomOnIsland(goat, 10, goat.R * 0.75);
+    const top = islandSummit(goat);
+    if (Math.hypot(p.x - top.x, p.z - top.z) < 16) continue; // keep the hilltop clear for the ruins
+    scene.add(buildPine(p.x, p.y, p.z, rand(3.5, 6)));
+  }
+  for (let k = 0; k < 16; k++) {
+    const p = randomOnIsland(goat, 6, goat.R);
+    scene.add(buildBush(p.x, p.y, p.z));
+  }
+  for (let k = 0; k < 5; k++) {
+    const gt = buildGoat(k % 3 === 2 ? goatDarkMat : goatMat);
+    const p = randomOnIsland(goat, 12, goat.R * 0.8);
+    gt.g.position.set(p.x, p.y, p.z);
+    scene.add(gt.g);
+    goats.push({ ...gt, x: p.x, z: p.z, tx: p.x, tz: p.z, wait: rand(0, 4), walk: 0 });
+  }
+  scene.add(buildHilltopRuins(goat));
+}
+
+// ===== Ruins and statues =====
+function buildColumn(mat, height, radius = 0.5, broken = false) {
+  const g = new THREE.Group();
+  const base = new THREE.Mesh(new THREE.BoxGeometry(radius * 2.6, 0.35, radius * 2.6), mat);
+  base.position.y = 0.17;
+  g.add(base);
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.88, radius, height, 12), mat);
+  shaft.position.y = 0.35 + height / 2;
+  g.add(shaft);
+  if (!broken) {
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(radius * 2.6, 0.4, radius * 2.6), mat);
+    cap.position.y = 0.35 + height + 0.2;
+    g.add(cap);
+  } else {
+    // Jagged broken top
+    const chunk = new THREE.Mesh(new THREE.ConeGeometry(radius * 0.88, radius * 1.2, 7), mat);
+    chunk.position.y = 0.35 + height + radius * 0.3;
+    chunk.rotation.z = 0.4;
+    g.add(chunk);
+  }
+  return g;
+}
+
+// A robed figure on a plinth, one arm stretched out toward the east — toward the strange light
+function buildWatcher(mat) {
+  const g = new THREE.Group();
+  const plinth = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.6, 2.4), mat);
+  plinth.position.y = 0.8;
+  g.add(plinth);
+  const robe = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 1.0, 3.4, 10), mat);
+  robe.position.y = 1.6 + 1.7;
+  g.add(robe);
+  const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.55, 1.2, 10), mat);
+  chest.position.y = 1.6 + 3.4 + 0.6;
+  g.add(chest);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.45, 12, 10), mat);
+  head.position.y = 1.6 + 3.4 + 1.2 + 0.5;
+  g.add(head);
+  const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.18, 2.2, 8), mat);
+  arm.position.set(1.1, 1.6 + 3.4 + 1.0, 0);
+  arm.rotation.z = -1.2; // raised, pointing out to sea
+  g.add(arm);
+  const otherArm = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.18, 1.8, 8), mat);
+  otherArm.position.set(-0.7, 1.6 + 3.4 + 0.2, 0);
+  otherArm.rotation.z = 0.25;
+  g.add(otherArm);
+  return g;
+}
+
+function buildHilltopRuins(I) {
+  const g = new THREE.Group();
+  const top = islandSummit(I); // built on the true summit, so the statue shows from every side
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * Math.PI * 2;
+    const x = top.x + Math.cos(a) * 8;
+    const z = top.z + Math.sin(a) * 8;
+    const broken = k % 3 !== 0;
+    const col = buildColumn(islandStoneMat, broken ? rand(1.5, 3.5) : 5, 0.45, broken);
+    col.position.set(x, islandHeight(I, x, z) - 0.2, z);
+    g.add(col);
+  }
+  // Fallen drums and blocks
+  for (let k = 0; k < 6; k++) {
+    const a = rand(0, Math.PI * 2);
+    const r = rand(4, 13);
+    const x = top.x + Math.cos(a) * r;
+    const z = top.z + Math.sin(a) * r;
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, rand(0.8, 2), 10), islandStoneMat);
+    drum.rotation.set(Math.PI / 2, rand(0, Math.PI), 0);
+    drum.position.set(x, islandHeight(I, x, z) + 0.35, z);
+    g.add(drum);
+  }
+  const watcher = buildWatcher(islandStoneMat);
+  watcher.scale.setScalar(1.3);
+  watcher.position.set(top.x, top.y - 0.3, top.z);
+  g.add(watcher);
+  return g;
+}
+
+// ===== Underwater: a sunken temple and a drowned colossus, a sailboat wreck, a rusted freighter =====
+function spotAt(x, depth) {
+  const z = spotAtDepth(x, depth);
+  return { x, z, y: seaBed(x, z) };
+}
+const TEMPLE = spotAt(-640, 6);
+const COLOSSUS = spotAt(-575, 7);
+const SAILBOAT = spotAt(LH_X + 330, 5);
+const FREIGHTER = { x: -1250, z: -640, y: seaBed(-1250, -640) };
+
+const sunkenStoneMat = applyUnderwater(new THREE.MeshStandardMaterial({ color: 0xd8d0bc, roughness: 0.9 }));
+const mossStoneMat = applyUnderwater(new THREE.MeshStandardMaterial({ color: 0x9aa68a, roughness: 0.95 }));
+
+function buildSunkenTemple() {
+  const g = new THREE.Group();
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(18, 1, 12), mossStoneMat);
+  floor.position.y = 0.5;
+  g.add(floor);
+  const heights = [5.5, 3, 5.5, 2, 4, 5.5, 1.5, 5.5, 3.5, 2.5];
+  for (let k = 0; k < 10; k++) {
+    const row = k < 5 ? -1 : 1;
+    const i = k % 5;
+    const h = heights[k];
+    const col = buildColumn(sunkenStoneMat, h, 0.5, h < 5);
+    col.position.set(-7 + i * 3.5, 1, row * 4.5);
+    g.add(col);
+  }
+  // A lintel still resting across two columns, and two toppled columns
+  const lintel = new THREE.Mesh(new THREE.BoxGeometry(5, 0.8, 1.4), sunkenStoneMat);
+  lintel.position.set(-5.25, 1 + 0.35 + 5.5 + 0.4 + 0.4, -4.5);
+  g.add(lintel);
+  for (const [x, z, r] of [[2, 0.5, 0.3], [-3, 1.5, 1.2]]) {
+    const fallen = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.5, 5, 12), sunkenStoneMat);
+    fallen.rotation.set(Math.PI / 2, r, 0);
+    fallen.position.set(x, 1.5, z);
+    g.add(fallen);
+  }
+  g.position.set(TEMPLE.x, TEMPLE.y - 0.3, TEMPLE.z);
+  g.rotation.y = 0.4;
+  return g;
+}
+
+function buildColossus() {
+  const g = new THREE.Group();
+  const face = new THREE.Mesh(new THREE.SphereGeometry(2.2, 20, 16), sunkenStoneMat);
+  face.scale.set(0.85, 1.15, 0.9);
+  g.add(face);
+  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.55, 1.2, 0.8), sunkenStoneMat);
+  nose.position.set(0, 0.1, -1.95);
+  nose.rotation.x = -0.15;
+  g.add(nose);
+  const brow = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.35, 0.6), sunkenStoneMat);
+  brow.position.set(0, 0.85, -1.7);
+  g.add(brow);
+  const lips = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.25, 0.4), sunkenStoneMat);
+  lips.position.set(0, -1.0, -1.85);
+  g.add(lips);
+  const eyeMat = applyUnderwater(new THREE.MeshStandardMaterial({ color: 0x2a2a28, roughness: 1 }));
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 6), eyeMat);
+    eye.position.set(side * 0.62, 0.45, -1.8);
+    eye.scale.z = 0.4;
+    g.add(eye);
+  }
+  const crown = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.9, 1.0, 12), mossStoneMat);
+  crown.position.y = 2.6;
+  g.add(crown);
+  g.position.set(COLOSSUS.x, COLOSSUS.y + 1.2, COLOSSUS.z);
+  g.rotation.set(-0.5, 2.4, 0.35); // lying tilted, face turned up toward the surface
+  return g;
+}
+
+function buildSailboatWreck() {
+  const g = new THREE.Group();
+  const wood = applyUnderwater(new THREE.MeshStandardMaterial({ color: 0x6a5238, roughness: 0.95 }));
+  const shape = new THREE.Shape();
+  shape.moveTo(-1.1, -3.5);
+  shape.lineTo(1.1, -3.5);
+  shape.lineTo(1.3, 0.8);
+  shape.quadraticCurveTo(1.1, 2.8, 0, 4);
+  shape.quadraticCurveTo(-1.1, 2.8, -1.3, 0.8);
+  shape.lineTo(-1.1, -3.5);
+  const hullGeo = new THREE.ExtrudeGeometry(shape, { depth: 1.2, bevelEnabled: false, curveSegments: 10 });
+  hullGeo.rotateX(-Math.PI / 2);
+  g.add(new THREE.Mesh(hullGeo, wood));
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 7, 6), wood);
+  mast.rotation.set(Math.PI / 2 - 0.2, 0, 0.3);
+  mast.position.set(1.8, 0.4, 1);
+  g.add(mast);
+  g.position.set(SAILBOAT.x, SAILBOAT.y + 0.3, SAILBOAT.z);
+  g.rotation.set(0.05, 1.1, 0.5);
+  return g;
+}
+
+// A freighter run aground: bow up out of the water, stern and bridge sunk just below the surface
+function buildFreighter() {
+  const g = new THREE.Group();
+  const steel = applyUnderwater(new THREE.MeshStandardMaterial({ color: 0x353a40, roughness: 0.7, metalness: 0.3 }));
+  const rust = applyUnderwater(new THREE.MeshStandardMaterial({ color: 0x7a3b1c, roughness: 0.9 }));
+  const deckMat = applyUnderwater(new THREE.MeshStandardMaterial({ color: 0x5a4a3a, roughness: 0.9 }));
+  const shape = new THREE.Shape();
+  shape.moveTo(-4.5, -20);
+  shape.lineTo(4.5, -20);
+  shape.lineTo(4.6, 12);
+  shape.quadraticCurveTo(4.2, 20, 0, 25);
+  shape.quadraticCurveTo(-4.2, 20, -4.6, 12);
+  shape.lineTo(-4.5, -20);
+  const hullGeo = new THREE.ExtrudeGeometry(shape, { depth: 8, bevelEnabled: false, curveSegments: 12 });
+  hullGeo.rotateX(-Math.PI / 2);
+  hullGeo.translate(0, -4, 0);
+  g.add(new THREE.Mesh(hullGeo, steel));
+  const band = new THREE.Mesh(hullGeo, rust);
+  band.scale.set(1.01, 0.3, 1.005);
+  band.position.y = -1.2;
+  g.add(band);
+  const deckGeo = new THREE.ShapeGeometry(shape, 12);
+  deckGeo.rotateX(-Math.PI / 2);
+  const deck = new THREE.Mesh(deckGeo, deckMat);
+  deck.position.y = 4.02;
+  deck.scale.set(0.97, 1, 0.98);
+  g.add(deck);
+  const bridge = new THREE.Mesh(new THREE.BoxGeometry(8, 6, 6), rust);
+  bridge.position.set(0, 7, 15);
+  g.add(bridge);
+  const funnel = new THREE.Mesh(new THREE.CylinderGeometry(1, 1.2, 4, 10), steel);
+  funnel.position.set(0, 11, 17);
+  g.add(funnel);
+  for (let k = 0; k < 3; k++) {
+    const hatch = new THREE.Mesh(new THREE.BoxGeometry(5, 0.8, 5), rust);
+    hatch.position.set(0, 4.4, -12 + k * 8);
+    g.add(hatch);
+  }
+  g.position.set(FREIGHTER.x, -6, FREIGHTER.z);
+  g.rotation.order = "YXZ";
+  g.rotation.set(0.28, 0.9, 0.12); // bow raised, listing
+  return g;
+}
+
+buildIslands();
+scene.add(buildSunkenTemple(), buildColossus(), buildSailboatWreck(), buildFreighter());
+
+// Island life: palms sway, seals nod, goats wander, turtles glide
+function updateIslandLife(dt, t) {
+  for (const p of swayingCrowns) {
+    const s = 0.04 + 0.03 * wx.storm;
+    p.crown.rotation.z = Math.sin(t * 1.3 + p.phase) * s;
+    p.crown.rotation.x = Math.cos(t * 1.1 + p.phase) * s;
+  }
+  for (const s of seals) s.head.rotation.x = -0.35 + Math.sin(t * 0.8 + s.phase) * 0.35;
+
+  const goatI = ISLAND.goat;
+  for (const gt of goats) {
+    const dx = gt.tx - gt.x;
+    const dz = gt.tz - gt.z;
+    const dist = Math.hypot(dx, dz);
+    if (gt.wait > 0) {
+      gt.wait -= dt;
+      gt.walk = 0;
+    } else if (dist < 0.3) {
+      gt.wait = rand(2, 7);
+      const p = randomOnIsland(goatI, 12, goatI.R * 0.85);
+      gt.tx = p.x;
+      gt.tz = p.z;
+    } else {
+      gt.x += (dx / dist) * 0.6 * dt;
+      gt.z += (dz / dist) * 0.6 * dt;
+      gt.g.rotation.y = Math.atan2(-dx, -dz);
+      gt.walk += dt * 8;
+    }
+    gt.g.position.set(gt.x, islandHeight(goatI, gt.x, gt.z), gt.z);
+    gt.legs.forEach((leg, i) => (leg.rotation.x = gt.wait > 0 ? 0 : Math.sin(gt.walk + (i % 2) * Math.PI) * 0.5));
+  }
+
+  const palm = ISLAND.palm;
+  for (const tu of turtles) {
+    tu.angle += tu.speed * dt;
+    const x = palm.x + Math.cos(tu.angle) * tu.radius;
+    const z = palm.z + Math.sin(tu.angle) * tu.radius;
+    tu.g.position.set(x, -1.5 + Math.sin(t * 0.3 + tu.phase) * 0.5, z);
+    tu.g.rotation.y = Math.atan2(Math.sin(tu.angle), -Math.cos(tu.angle));
+    for (const f of tu.flippers) {
+      f.pivot.rotation.z = f.side * Math.sin(t * 2 + (f.front ? 0 : 1)) * (f.front ? 0.6 : 0.3);
+    }
+  }
+}
+
+// ===== River water, reeds and riverside trees =====
+const RIVER_GLSL = /* glsl */ `
+  float segDist(vec2 p, vec2 a, vec2 b) {
+    vec2 ab = b - a;
+    float t = clamp(dot(p - a, ab) / dot(ab, ab), 0.0, 1.0);
+    return length(p - (a + ab * t));
+  }
+  float riverDistG(vec2 p) {
+    float best = 1e9;
+    ${RIVER_SEGS.map(
+      (s) =>
+        `best = min(best, segDist(p, vec2(${s.ax.toFixed(1)}, ${s.az.toFixed(1)}), vec2(${s.bx.toFixed(1)}, ${s.bz.toFixed(1)})) - ${(s.w / 2).toFixed(1)});`
+    ).join("\n    ")}
+    return best;
+  }
+  float swampMaskG(vec2 p) {
+    float r = ${SWAMP.r.toFixed(1)};
+    return (1.0 - smoothstep(r * 0.65, r, length(p - vec2(${SWAMP.x.toFixed(1)}, ${SWAMP.z.toFixed(1)})))) *
+           smoothstep(4.0, 18.0, inlandDist(p));
+  }
+`;
+
+function buildRiverWater() {
+  const x0 = 560;
+  const x1 = 1060;
+  const z0 = shoreZAt(800) - 960;
+  const z1 = shoreZAt(800) + 40;
+  const geo = new THREE.PlaneGeometry(x1 - x0, z1 - z0);
+  geo.rotateX(-Math.PI / 2);
+  const mesh = new THREE.Mesh(
+    geo,
+    new THREE.ShaderMaterial({
+      uniforms: Object.assign({}, shared, haze, { uLightW: waterUniforms.uLight }),
+      vertexShader: /* glsl */ `
+        varying vec3 vWorld;
+        void main() {
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vWorld = wp.xyz;
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        ${SKY_GLSL}
+        ${NOISE_GLSL}
+        ${SHORE_GLSL}
+        ${RIVER_GLSL}
+        uniform float uLightW;
+        uniform float uHazeNear;
+        uniform float uHazeFar;
+        uniform float uHazeMax;
+        varying vec3 vWorld;
+        void main() {
+          vec2 p = vWorld.xz;
+          float sw = swampMaskG(p);
+          // Only the river channels and the swamp pools: the sea takes over near the shore
+          if (inlandDist(p) < 6.0 || (riverDistG(p) > 8.0 && sw < 0.25)) discard;
+          vec3 toCam = cameraPosition - vWorld;
+          float dist = length(toCam);
+          vec3 v = toCam / dist;
+          // Ripples drifting downstream (toward the sea, +z)
+          vec2 q = p * 0.4 + vec2(0.0, uTime * 0.35 * (1.0 - sw));
+          float e = 0.1;
+          float h0 = vnoise(q);
+          vec3 n = normalize(vec3(-(vnoise(q + vec2(e, 0.0)) - h0) / e * 0.08, 1.0, -(vnoise(q + vec2(0.0, e)) - h0) / e * 0.08));
+          float fres = 0.04 + 0.96 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
+          vec3 r = reflect(-v, n);
+          r.y = abs(r.y);
+          vec3 body = mix(vec3(0.1, 0.17, 0.12), vec3(0.15, 0.18, 0.09), sw) * uLightW;
+          vec3 col = mix(body, skyColor(r), fres * 0.8);
+          col += uSunColor * pow(max(dot(r, uSunDir), 0.0), 200.0) * 1.5 * uSunVis;
+          float hz = smoothstep(uHazeNear, uHazeFar, dist) * uHazeMax;
+          col = mix(col, skyColor(normalize(vec3(-v.x + 1e-4, 0.0, -v.z))), hz);
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `,
+    })
+  );
+  mesh.position.set((x0 + x1) / 2, 0.28, (z0 + z1) / 2);
+  return mesh;
+}
+
+// A clump of reed blades (thin upright triangles leaning a little outward)
+function reedClumpGeometry() {
+  const verts = [];
+  for (let k = 0; k < 7; k++) {
+    const a = (k / 7) * Math.PI * 2 + rand(-0.3, 0.3);
+    const bx = Math.cos(a) * 0.25;
+    const bz = Math.sin(a) * 0.25;
+    const h = rand(1.4, 2.4);
+    const lean = rand(0.15, 0.45);
+    const px = -Math.sin(a) * 0.05;
+    const pz = Math.cos(a) * 0.05;
+    verts.push(bx - px, 0, bz - pz, bx + px, 0, bz + pz, bx * (1 + lean * 3), h, bz * (1 + lean * 3));
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+function buildRiverside() {
+  const group = new THREE.Group();
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const s = new THREE.Vector3();
+  const p = new THREE.Vector3();
+  const col = new THREE.Color();
+
+  // Reeds in the swamp and along the banks
+  const reedMat = applyHaze(new THREE.MeshStandardMaterial({ color: 0x8a9150, roughness: 0.9, side: THREE.DoubleSide }));
+  const reeds = new THREE.InstancedMesh(reedClumpGeometry(), reedMat, 900);
+  let n = 0;
+  for (let k = 0; k < 20000 && n < 900; k++) {
+    const x = rand(560, 1060);
+    const z = shoreZAt(800) - rand(-10, 900);
+    const y = landHeight(x, z);
+    const r = riverDist(x, z);
+    const inSwamp = swampMask(x, z) > 0.35;
+    if (y < 0.12 || y > 1.4 || (!inSwamp && (r < 0.5 || r > 9))) continue;
+    p.set(x, y - 0.1, z);
+    q.setFromEuler(e.set(0, rand(0, Math.PI * 2), 0));
+    s.setScalar(rand(0.7, 1.3));
+    reeds.setMatrixAt(n++, m.compose(p, q, s));
+  }
+  reeds.count = n;
+  group.add(reeds);
+
+  // Trees: dark swamp trees in the delta, leafy trees on the floodplain
+  const trunkGeo = new THREE.CylinderGeometry(0.25, 0.4, 1, 6);
+  trunkGeo.translate(0, 0.5, 0);
+  const crownGeo = new THREE.IcosahedronGeometry(1, 1);
+  const trunkMat = applyHaze(new THREE.MeshStandardMaterial({ color: 0x5a4632, roughness: 0.9 }));
+  const crownMat = applyHaze(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, flatShading: true }));
+  const COUNT = 260;
+  const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, COUNT);
+  const crowns = new THREE.InstancedMesh(crownGeo, crownMat, COUNT * 2);
+  let t = 0;
+  let c = 0;
+  for (let k = 0; k < 30000 && t < COUNT; k++) {
+    const x = rand(540, 1080);
+    const z = shoreZAt(800) - rand(10, 900);
+    const y = landHeight(x, z);
+    const r = riverDist(x, z);
+    const swamp = swampMask(x, z) > 0.4;
+    if (y < 0.35 || y > 30 || r < 5 || r > 150) continue;
+    if (!swamp && Math.random() > 0.55) continue;
+    const h = swamp ? rand(4, 7) : rand(5, 10);
+    p.set(x, y - 0.3, z);
+    q.setFromEuler(e.set(rand(-0.08, 0.08), rand(0, 6.3), rand(-0.08, 0.08)));
+    s.set(swamp ? 0.7 : 1, h, swamp ? 0.7 : 1);
+    trunks.setMatrixAt(t++, m.compose(p, q, s));
+    // One or two canopy blobs per tree
+    const blobs = swamp ? 2 : 1 + Math.floor(Math.random() * 2);
+    for (let b = 0; b < blobs && c < COUNT * 2; b++) {
+      const cr = swamp ? rand(2.2, 3.2) : rand(2.5, 4);
+      p.set(x + rand(-1.2, 1.2), y + h + rand(-0.5, 0.8), z + rand(-1.2, 1.2));
+      s.set(cr, cr * (swamp ? 0.55 : 0.8), cr);
+      crowns.setMatrixAt(c, m.compose(p, q, s));
+      col.setHSL(swamp ? rand(0.2, 0.25) : rand(0.24, 0.3), swamp ? 0.35 : 0.5, swamp ? rand(0.2, 0.26) : rand(0.26, 0.34));
+      crowns.setColorAt(c++, col);
+    }
+  }
+  trunks.count = t;
+  crowns.count = c;
+  group.add(trunks, crowns);
+  return group;
+}
+scene.add(buildRiverWater(), buildRiverside());
+
+// ===== Clifftop town =====
+const TOWN = { x0: -1580, x1: -1180 };
+const TOWN_CENTER = { x: -1380, z: shoreZAt(-1380) - 120 };
+
+function buildTown() {
+  const group = new THREE.Group();
+  const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+  boxGeo.translate(0, 0.5, 0);
+  const mat = applyHaze(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 }), { city: true });
+  const palette = [0xf2efe6, 0xf2efe6, 0xe8dcc0, 0xd9c29a, 0xcfdde6, 0xc47a52].map((h) => new THREE.Color(h));
+  const lots = [];
+  for (let x = TOWN.x0; x <= TOWN.x1; x += rand(13, 18)) {
+    if (cliffAmount(x) < 0.8) continue;
+    for (let d = 68; d <= 290; d += rand(14, 20)) {
+      if (Math.random() < 0.25) continue;
+      const bx = x + rand(-2, 2);
+      const bz = shoreZAt(bx) - d;
+      const w = rand(7, 12);
+      const dp = rand(7, 12);
+      const corners = [[-w / 2, -dp / 2], [w / 2, -dp / 2], [-w / 2, dp / 2], [w / 2, dp / 2]].map(([cx, cz]) =>
+        landHeight(bx + cx, bz + cz)
+      );
+      const lo = Math.min(...corners);
+      const hi = Math.max(...corners);
+      if (hi - lo > 8) continue; // too steep to build on
+      const h = rand(6, 11) + smooth(60, 280, d) * rand(0, 14) + (Math.random() < 0.06 ? rand(10, 18) : 0);
+      lots.push({ x: bx, z: bz, w, dp, base: lo - 0.5, h: h + (hi - lo) + 0.5, top: hi + h });
+    }
+  }
+  const houses = new THREE.InstancedMesh(boxGeo, mat, lots.length);
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  lots.forEach((L, i) => {
+    houses.setMatrixAt(i, m.compose(new THREE.Vector3(L.x, L.base, L.z), q, new THREE.Vector3(L.w, L.h, L.dp)));
+    houses.setColorAt(i, palette[Math.floor(Math.random() * palette.length)]);
+  });
+  group.add(houses);
+
+  // A church with a bell tower and dome as a landmark
+  const white = applyHaze(new THREE.MeshStandardMaterial({ color: 0xf6f3ea, roughness: 0.8 }));
+  const blue = applyHaze(new THREE.MeshStandardMaterial({ color: 0x3b6ea5, roughness: 0.6 }));
+  const cy = landHeight(TOWN_CENTER.x, TOWN_CENTER.z);
+  const nave = new THREE.Mesh(new THREE.BoxGeometry(12, 9, 18), white);
+  nave.position.set(TOWN_CENTER.x, cy + 4.5, TOWN_CENTER.z);
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(5, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), blue);
+  dome.position.set(TOWN_CENTER.x, cy + 9, TOWN_CENTER.z);
+  const tower = new THREE.Mesh(new THREE.BoxGeometry(4, 22, 4), white);
+  tower.position.set(TOWN_CENTER.x + 8, cy + 11, TOWN_CENTER.z + 6);
+  const spire = new THREE.Mesh(new THREE.ConeGeometry(2.6, 5, 4), blue);
+  spire.position.set(TOWN_CENTER.x + 8, cy + 24.5, TOWN_CENTER.z + 6);
+  spire.rotation.y = Math.PI / 4;
+  group.add(nave, dome, tower, spire);
+
+  // Night lights: glowing points on the seaward walls and streetlights along the cliff edge,
+  // so the town twinkles on the horizon even from far away
+  const pts = [];
+  const cols = [];
+  for (const L of lots) {
+    for (let k = 0; k < 5; k++) {
+      pts.push(L.x + rand(-L.w / 2, L.w / 2), L.base + 1 + rand(1.5, L.h - 1), L.z + L.dp / 2 + 0.3);
+      const warm = rand(0, 1);
+      cols.push(1, 0.72 + warm * 0.15, 0.4 + warm * 0.2);
+    }
+  }
+  for (let x = TOWN.x0; x <= TOWN.x1; x += 12) {
+    const z = shoreZAt(x) - 52;
+    pts.push(x, landHeight(x, z) + 5, z);
+    cols.push(1, 0.85, 0.6);
+  }
+  const lightGeo = new THREE.BufferGeometry();
+  lightGeo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+  lightGeo.setAttribute("color", new THREE.Float32BufferAttribute(cols, 3));
+  const lightMat = new THREE.PointsMaterial({
+    size: 3,
+    sizeAttenuation: false,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    fog: false,
+  });
+  const lights = new THREE.Points(lightGeo, lightMat);
+  lights.frustumCulled = false;
+  group.add(lights);
+  return { group, lightMat };
+}
+const town = buildTown();
+scene.add(town.group);
+
+// ===== Beach life at the harbor cove =====
+const skinMats = [0xe0b08a, 0xc68e62, 0x8d5a3b, 0xf1c9a5].map((h) =>
+  applyHaze(new THREE.MeshStandardMaterial({ color: h, roughness: 0.7 }))
+);
+const swimSkinMats = [0xe0b08a, 0xc68e62, 0x8d5a3b].map((h) =>
+  applyUnderwater(new THREE.MeshStandardMaterial({ color: h, roughness: 0.7 }))
+);
+const brightMats = [0xe8453c, 0xf2c14e, 0x3b82c4, 0x2fb39a, 0xf28fb1, 0xffffff].map((h) =>
+  applyHaze(new THREE.MeshStandardMaterial({ color: h, roughness: 0.8, side: THREE.DoubleSide }))
+);
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+// A spot on the cove, clear of the pier and the boathouse
+function coveSpot(dMin, dMax) {
+  for (let k = 0; k < 100; k++) {
+    const x = COVE_X + rand(-210, 210);
+    if (x > COVE_X - 8 && x < COVE_X + 24) continue;
+    const d = rand(dMin, dMax);
+    const z = shoreZAt(x) - d;
+    return { x, z, y: landHeight(x, z) };
+  }
+  return { x: COVE_X - 100, z: shoreZAt(COVE_X - 100) - dMin, y: 0 };
+}
+
+function buildPerson(skin, lying) {
+  const g = new THREE.Group();
+  const shirt = pick(brightMats);
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.15, 0.6, 8), lying ? skin : shirt);
+  const hips = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.13, 0.25, 8), pick(brightMats));
+  const legs = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.08, 0.85, 8), skin);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), skin);
+  legs.position.y = 0.43;
+  hips.position.y = 0.95;
+  torso.position.y = 1.35;
+  head.position.y = 1.78;
+  g.add(legs, hips, torso, head);
+  if (lying) g.rotation.x = -Math.PI / 2;
+  return g;
+}
+
+const sunbathers = [];
+const swimmers = [];
+const surfers = [];
+function buildBeachLife() {
+  const group = new THREE.Group();
+  // Sunbathers on towels and loungers, most under umbrellas
+  for (let k = 0; k < 16; k++) {
+    const s = coveSpot(14, 42);
+    const g = new THREE.Group();
+    const onLounger = Math.random() < 0.4;
+    const base = onLounger ? 0.35 : 0.03;
+    if (onLounger) {
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.3, 1.9), brightMats[5]);
+      frame.position.y = 0.15;
+      g.add(frame);
+    } else {
+      const towel = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.02, 1.9), pick(brightMats));
+      towel.position.y = 0.01;
+      g.add(towel);
+    }
+    const person = buildPerson(pick(skinMats), true);
+    person.position.set(0, base + 0.18, 0.9);
+    g.add(person);
+    if (Math.random() < 0.7) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.3, 6), brightMats[5]);
+      pole.position.set(0.8, 1.15, -0.3);
+      const canopy = new THREE.Mesh(new THREE.ConeGeometry(1.2, 0.5, 10, 1, true), pick(brightMats));
+      canopy.position.set(0.8, 2.35, -0.3);
+      g.add(pole, canopy);
+    }
+    g.position.set(s.x, s.y, s.z);
+    g.rotation.y = rand(-0.4, 0.4); // heads toward land, feet toward the sea
+    group.add(g);
+    sunbathers.push(g);
+  }
+  // Swimmers: heads and shoulders above the water, drifting about
+  for (let k = 0; k < 10; k++) {
+    const s = coveSpot(-38, -6);
+    const g = new THREE.Group();
+    const skin = pick(swimSkinMats);
+    const shoulders = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), skin);
+    shoulders.scale.set(1.3, 0.8, 0.7);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), skin);
+    head.position.y = 0.26;
+    g.add(shoulders, head);
+    group.add(g);
+    swimmers.push({ g, cx: s.x, cz: s.z, a: rand(0, 6.3), r: rand(2, 6), speed: rand(0.03, 0.08), phase: rand(0, 6) });
+  }
+  // Surfers: paddle out lying on the board, then ride a wave back in standing up
+  for (let k = 0; k < 3; k++) {
+    const g = new THREE.Group();
+    const board = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.07, 2.2), pick(brightMats));
+    const rider = buildPerson(pick(skinMats), false);
+    g.add(board, rider);
+    group.add(g);
+    surfers.push({ g, board, rider, x: COVE_X + rand(-180, -40) + k * 70, t: rand(0, 40) });
+  }
+  return group;
+}
+scene.add(buildBeachLife());
+
+function updateBeachLife(dt, t, env) {
+  const daytime = env.light > 0.35 && wx.storm < 0.5;
+  for (const g of sunbathers) g.visible = daytime && wx.rain < 0.5;
+  for (const s of swimmers) {
+    s.g.visible = daytime;
+    s.a += s.speed * dt;
+    const x = s.cx + Math.cos(s.a) * s.r;
+    const z = s.cz + Math.sin(s.a) * s.r;
+    s.g.position.set(x, waveHeight(x, z, t) - 0.12 + Math.sin(t * 2 + s.phase) * 0.04, z);
+    s.g.rotation.y = -s.a;
+  }
+  const CYCLE = 40; // seconds: 25 paddling out, 15 riding in
+  for (const s of surfers) {
+    s.g.visible = daytime;
+    s.t = (s.t + dt) % CYCLE;
+    const riding = s.t > 25;
+    const u = riding ? (s.t - 25) / 15 : s.t / 25;
+    const d = riding ? lerp(-95, -14, u) : lerp(-14, -95, u);
+    const x = s.x + Math.sin(t * 0.05 + s.x) * 20;
+    const z = shoreZAt(x) - d;
+    s.g.position.set(x, waveHeight(x, z, t) + 0.05, z);
+    s.g.rotation.set(0, riding ? 0 : Math.PI, riding ? Math.sin(t * 1.5 + s.x) * 0.12 : 0); // ride toward the beach, paddle out to sea
+    s.rider.rotation.x = riding ? 0 : -Math.PI / 2;
+    s.rider.position.set(0, riding ? 0.05 : 0.2, riding ? 0 : 0.2);
+    s.rider.scale.setScalar(riding ? 1 : 0.95);
+  }
+}
+
+// ===== Sea traffic: sailboats, a tour boat, a ferry, a tanker, the coast guard, and a small plane =====
+function hullGeometry(len, beam, height, draft) {
+  const s = new THREE.Shape();
+  const hl = len / 2;
+  const hb = beam / 2;
+  s.moveTo(-hb * 0.85, -hl);
+  s.lineTo(hb * 0.85, -hl);
+  s.lineTo(hb, hl * 0.35);
+  s.quadraticCurveTo(hb * 0.9, hl * 0.85, 0, hl);
+  s.quadraticCurveTo(-hb * 0.9, hl * 0.85, -hb, hl * 0.35);
+  s.lineTo(-hb * 0.85, -hl);
+  const g = new THREE.ExtrudeGeometry(s, { depth: height, bevelEnabled: false, curveSegments: 10 });
+  g.rotateX(-Math.PI / 2); // bow toward -Z
+  g.translate(0, -draft, 0);
+  return g;
+}
+const hazeMat = (color, extra = {}) => applyHaze(new THREE.MeshStandardMaterial({ color, roughness: 0.7, ...extra }));
+const glowMat = (color) => new THREE.MeshStandardMaterial({ color: 0x222222, emissive: color, emissiveIntensity: 0 });
+const box = (w, h, d, mat, x, y, z) => {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.position.set(x, y, z);
+  return m;
+};
+
+// A white masthead light that shows at night
+function mastLight(parent, x, y, z) {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute([x, y, z], 3));
+  const mat = new THREE.PointsMaterial({ size: 4, sizeAttenuation: false, color: 0xfff4dd, transparent: true, opacity: 0, fog: false, depthWrite: false });
+  parent.add(new THREE.Points(geo, mat));
+  return mat;
+}
+
+function buildSailboat() {
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(hullGeometry(9, 2.8, 1.4, 0.6), hazeMat(0xf4f4f0)));
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 12, 6), hazeMat(0xcccccc));
+  mast.position.set(0, 6.8, -0.8);
+  g.add(mast);
+  const sailMat = hazeMat(0xfbfaf4, { side: THREE.DoubleSide });
+  const tri = (pts) => {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+    geo.computeVertexNormals();
+    return new THREE.Mesh(geo, sailMat);
+  };
+  g.add(tri([0, 1.4, -0.7, 0, 12.4, -0.7, 0, 1.6, 3.4])); // mainsail
+  g.add(tri([0, 1.4, -1.0, 0, 11.5, -0.9, 0, 1.2, -4.3])); // jib
+  return { group: g, light: mastLight(g, 0, 12.9, -0.8) };
+}
+
+function buildTourBoat() {
+  const g = new THREE.Group();
+  const hull = hazeMat(0xf2f2ee);
+  for (const side of [-1, 1]) {
+    const pontoon = new THREE.Mesh(hullGeometry(15, 1.6, 1.6, 0.8), hull);
+    pontoon.position.x = side * 2.6;
+    g.add(pontoon);
+  }
+  g.add(box(6.8, 0.4, 13, hazeMat(0x9c7a55), 0, 1.0, 0.3));
+  for (const [x, z] of [[-3, -4], [3, -4], [-3, 5], [3, 5]]) g.add(box(0.12, 2.4, 0.12, hull, x, 2.4, z));
+  g.add(box(7, 0.2, 11, hazeMat(0x2fb39a), 0, 3.6, 0.5)); // canopy
+  for (let k = 0; k < 8; k++) g.add(box(0.5, 0.7, 0.5, pick(brightMats), rand(-2.5, 2.5), 1.55, rand(-4, 5))); // passengers
+  return { group: g, light: mastLight(g, 0, 4.2, -3) };
+}
+
+function buildFerry() {
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(hullGeometry(70, 14, 7, 3), hazeMat(0x1f3f6e)));
+  g.add(box(13.5, 0.9, 62, hazeMat(0xf4f4f0), 0, 4.4, 2)); // white band above the blue hull
+  g.add(box(12, 4, 44, hazeMat(0xf4f4f0), 0, 6.8, 6));
+  g.add(box(10, 3.5, 30, hazeMat(0xf4f4f0), 0, 10.5, 8));
+  const windows = glowMat(0xffd9a0);
+  g.add(box(12.2, 1, 42, windows, 0, 7.2, 6));
+  g.add(box(10.2, 1, 28, windows, 0, 10.9, 8));
+  const funnel = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.9, 5, 12), hazeMat(0xf4f4f0));
+  funnel.position.set(0, 14.5, 18);
+  g.add(funnel, box(3.4, 1.4, 3.4, hazeMat(0xc0392b), 0, 16.8, 18));
+  return { group: g, light: mastLight(g, 0, 17, -8), windows };
+}
+
+function buildTanker() {
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(hullGeometry(180, 30, 10, 7), hazeMat(0x7a2a22)));
+  g.add(box(29, 3, 172, hazeMat(0x1c1c1c), 0, 1.6, -2)); // black topsides
+  g.add(box(27, 0.4, 160, hazeMat(0x566457), 0, 3.3, -6)); // green deck
+  for (let k = 0; k < 8; k++) g.add(box(2, 1.2, 150, hazeMat(0x9aa39a), -8 + (k % 4) * 5, 4, -8)); // pipework
+  g.add(box(24, 14, 14, hazeMat(0xf1eee6), 0, 10, 70));
+  const windows = glowMat(0xffe0b0);
+  g.add(box(24.2, 1.2, 14.2, windows, 0, 14.5, 70));
+  const funnel = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 3, 8, 12), hazeMat(0x1c1c1c));
+  funnel.position.set(0, 21, 76);
+  g.add(funnel);
+  return { group: g, light: mastLight(g, 0, 22, 62), windows };
+}
+
+function buildCoastGuard() {
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(hullGeometry(16, 4.4, 2.4, 0.9), hazeMat(0xf4f4f0)));
+  const stripe = box(4.5, 0.6, 2.2, hazeMat(0xd9342b), 0, 0.8, -3);
+  stripe.rotation.y = 0.5;
+  g.add(stripe, box(3.4, 2.2, 5, hazeMat(0x9aa3ab), 0, 2.6, 1.5));
+  const blue = glowMat(0x3b8bff);
+  const red = glowMat(0xff3b3b);
+  g.add(box(0.8, 0.3, 0.4, blue, -0.5, 3.9, 1), box(0.8, 0.3, 0.4, red, 0.5, 3.9, 1));
+  return { group: g, light: mastLight(g, 0, 5, 1.5), blue, red };
+}
+
+function buildSmallPlane() {
+  const g = new THREE.Group();
+  const white = hazeMat(0xf4f4f0);
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.35, 8, 10), white);
+  body.rotation.x = Math.PI / 2;
+  g.add(body, box(11, 0.2, 1.6, hazeMat(0xd9342b), 0, 0.5, -0.8), box(3.6, 0.15, 1, white, 0, 0.2, 3.6), box(0.15, 1.4, 1, white, 0, 0.8, 3.7));
+  const prop = box(0.1, 2, 0.12, hazeMat(0x333333), 0, 0, -4.1);
+  g.add(prop);
+  return { group: g, prop };
+}
+
+// Routes are loops (ellipses) or straight lines sailed back and forth; all stay in open, deep water
+const vessels = [];
+function addVessel(type, model, route, speed, bob = 1) {
+  model.group.rotation.order = "YXZ";
+  scene.add(model.group);
+  vessels.push({ type, ...model, route, speed, bob, s: Math.random() * 1000, x: 0, z: 0, yaw: 0 });
+}
+addVessel("sailboat", buildSailboat(), { kind: "loop", cx: -500, cz: -650, rx: 180, rz: 90 }, 3.5);
+addVessel("sailboat", buildSailboat(), { kind: "loop", cx: 700, cz: -450, rx: 250, rz: 120 }, 4);
+addVessel("sailboat", buildSailboat(), { kind: "loop", cx: -1500, cz: -400, rx: 200, rz: 100 }, 3);
+addVessel("tourboat", buildTourBoat(), { kind: "loop", cx: 380, cz: -700, rx: 170, rz: 140 }, 4.5);
+addVessel("ferry", buildFerry(), { kind: "line", ax: -3300, az: -250, bx: 3300, bz: -150 }, 9, 0.4);
+addVessel("tanker", buildTanker(), { kind: "line", ax: 3600, az: 500, bx: -3600, bz: 700 }, 5, 0.15);
+addVessel("coastguard", buildCoastGuard(), { kind: "line", ax: -1800, az: -850, bx: 1800, bz: -800 }, 13);
+const smallPlane = buildSmallPlane();
+smallPlane.group.rotation.order = "YXZ";
+scene.add(smallPlane.group);
+const planeRoute = { cx: 0, cz: -600, r: 1200, alt: 170, a: 0 };
+
+// Position and heading along a route at distance s travelled
+function routePoint(route, s) {
+  if (route.kind === "loop") {
+    const a = s / ((route.rx + route.rz) / 2);
+    return { x: route.cx + Math.cos(a) * route.rx, z: route.cz + Math.sin(a) * route.rz, vx: -Math.sin(a) * route.rx, vz: Math.cos(a) * route.rz };
+  }
+  const len = Math.hypot(route.bx - route.ax, route.bz - route.az);
+  const u = s % (2 * len);
+  const back = u > len;
+  const f = back ? 2 - u / len : u / len;
+  const dir = back ? -1 : 1;
+  return { x: lerp(route.ax, route.bx, f), z: lerp(route.az, route.bz, f), vx: (route.bx - route.ax) * dir, vz: (route.bz - route.az) * dir };
+}
+
+function updateTraffic(dt, t, env) {
+  for (const v of vessels) {
+    v.s += v.speed * dt;
+    const p = routePoint(v.route, v.s);
+    v.x = p.x;
+    v.z = p.z;
+    v.yaw = Math.atan2(-p.vx, -p.vz);
+    const h = waveHeight(p.x, p.z, t);
+    v.group.position.set(p.x, h * v.bob, p.z);
+    v.group.rotation.set(Math.sin(t * 0.7 + v.s) * 0.04 * v.bob, v.yaw, (v.type === "sailboat" ? 0.18 : 0) + Math.sin(t * 0.9 + v.s) * 0.05 * v.bob);
+    if (v.light) v.light.opacity = env.lampsOn;
+    if (v.windows) v.windows.emissiveIntensity = 1.4 * env.lampsOn;
+    if (v.blue) {
+      const flash = Math.floor(t * 3) % 2;
+      v.blue.emissiveIntensity = flash ? 3 : 0.2;
+      v.red.emissiveIntensity = flash ? 0.2 : 3;
+    }
+  }
+  // Small plane circling the bay
+  planeRoute.a += (45 / planeRoute.r) * dt;
+  const a = planeRoute.a;
+  smallPlane.group.position.set(planeRoute.cx + Math.cos(a) * planeRoute.r, planeRoute.alt, planeRoute.cz + Math.sin(a) * planeRoute.r);
+  smallPlane.group.rotation.set(0, Math.atan2(Math.sin(a), -Math.cos(a)), -0.25);
+  smallPlane.prop.rotation.z += dt * 40;
+  smallPlane.group.visible = env.light > 0.3 && wx.storm < 0.5;
+
+  // Town lights at night
+  cityLights.value = env.lampsOn;
+  town.lightMat.opacity = env.lampsOn;
+}
+
 // ===== Discovery journal =====
+// Discoveries and photos fill the journal; money only comes from completing expedition tasks.
 const JOURNAL = [
-  { id: "gulls", cat: "Wildlife", name: "Seagulls", value: 100 },
-  { id: "flyingfish", cat: "Wildlife", name: "Leaping fish", value: 150 },
-  { id: "reeffish", cat: "Wildlife", name: "Anthias school", value: 300 },
-  { id: "dolphins", cat: "Wildlife", name: "Dolphin pod", value: 400 },
-  { id: "harbor", cat: "Locations", name: "Harbor Cove", value: 0 },
-  { id: "cliffs", cat: "Locations", name: "Limestone cliffs", value: 150 },
-  { id: "lighthouse", cat: "Locations", name: "Lighthouse", value: 200 },
-  { id: "stacks", cat: "Locations", name: "Sea stacks", value: 300 },
-  { id: "reef", cat: "Ocean", name: "Coral reef", value: 250 },
-  { id: "wreck", cat: "Ocean", name: "Old wreck", value: 800 },
-  { id: "glow", cat: "Mysteries", name: "Strange light", value: 1000 },
-  { id: "airliner", cat: "Sky & weather", name: "High-altitude airliner", value: 100 },
-  { id: "sunset", cat: "Sky & weather", name: "Sunset at sea", value: 150 },
-  { id: "stars", cat: "Sky & weather", name: "Starry night", value: 150 },
-  { id: "aurora", cat: "Sky & weather", name: "Aurora", value: 600 },
-  { id: "rain", cat: "Sky & weather", name: "Rain at sea", value: 150 },
-  { id: "storm", cat: "Sky & weather", name: "Storm", value: 400 },
+  { id: "gulls", cat: "Wildlife", name: "Seagulls" },
+  { id: "flyingfish", cat: "Wildlife", name: "Leaping fish" },
+  { id: "reeffish", cat: "Wildlife", name: "Anthias school" },
+  { id: "dolphins", cat: "Wildlife", name: "Dolphin pod" },
+  { id: "turtles", cat: "Wildlife", name: "Green sea turtle" },
+  { id: "seals", cat: "Wildlife", name: "Seal colony" },
+  { id: "goats", cat: "Wildlife", name: "Wild goats" },
+  { id: "harbor", cat: "Coast & islands", name: "Harbor Cove" },
+  { id: "cliffs", cat: "Coast & islands", name: "Limestone cliffs" },
+  { id: "lighthouse", cat: "Coast & islands", name: "Lighthouse" },
+  { id: "stacks", cat: "Coast & islands", name: "Sea stacks" },
+  { id: "palmislet", cat: "Coast & islands", name: "Palm Islet" },
+  { id: "sealrock", cat: "Coast & islands", name: "Seal Rock" },
+  { id: "goatisland", cat: "Coast & islands", name: "Goat Island" },
+  { id: "town", cat: "Coast & islands", name: "Clifftop town" },
+  { id: "townlights", cat: "Coast & islands", name: "Town lights at night" },
+  { id: "delta", cat: "Coast & islands", name: "River delta" },
+  { id: "swamp", cat: "Coast & islands", name: "Reed swamp" },
+  { id: "sailboats", cat: "People & boats", name: "Sailboats" },
+  { id: "tourboat", cat: "People & boats", name: "Island tour boat" },
+  { id: "ferry", cat: "People & boats", name: "Car ferry" },
+  { id: "tanker", cat: "People & boats", name: "Oil tanker" },
+  { id: "coastguard", cat: "People & boats", name: "Coast guard patrol" },
+  { id: "smallplane", cat: "People & boats", name: "Sightseeing plane" },
+  { id: "swimmers", cat: "People & boats", name: "Swimmers" },
+  { id: "surfers", cat: "People & boats", name: "Surfers" },
+  { id: "sunbathers", cat: "People & boats", name: "Sunbathers" },
+  { id: "reef", cat: "Underwater", name: "Coral reef" },
+  { id: "wreck", cat: "Underwater", name: "Old wreck" },
+  { id: "sailboat", cat: "Underwater", name: "Sunken sailboat" },
+  { id: "freighter", cat: "Underwater", name: "Rusted freighter" },
+  { id: "deepwreck", cat: "Underwater", name: "Deep wreck (sonar)" },
+  { id: "temple", cat: "Ruins & relics", name: "Sunken temple" },
+  { id: "colossus", cat: "Ruins & relics", name: "Drowned colossus" },
+  { id: "ruins", cat: "Ruins & relics", name: "Hilltop ruins" },
+  { id: "watcher", cat: "Ruins & relics", name: "The Watcher statue" },
+  { id: "glow", cat: "Mysteries", name: "Strange light" },
+  { id: "bell", cat: "Relics", name: "Ship's bell" },
+  { id: "coin", cat: "Relics", name: "Temple coin" },
+  { id: "logbook", cat: "Relics", name: "Captain's logbook" },
+  { id: "compass", cat: "Relics", name: "Brass compass" },
+  { id: "fragment1", cat: "Relics", name: "Artifact fragment I" },
+  { id: "fragment2", cat: "Relics", name: "Artifact fragment II" },
+  { id: "fragment3", cat: "Relics", name: "Artifact fragment III" },
+  { id: "airliner", cat: "Sky & weather", name: "High-altitude airliner" },
+  { id: "sunset", cat: "Sky & weather", name: "Sunset at sea" },
+  { id: "stars", cat: "Sky & weather", name: "Starry night" },
+  { id: "aurora", cat: "Sky & weather", name: "Aurora" },
+  { id: "rain", cat: "Sky & weather", name: "Rain at sea" },
+  { id: "storm", cat: "Sky & weather", name: "Storm" },
 ];
 const JOURNAL_BY_ID = Object.fromEntries(JOURNAL.map((e) => [e.id, e]));
 const journal = Object.fromEntries(JOURNAL.map((e) => [e.id, { seen: false, photo: false }]));
 
-// ===== Expeditions =====
+// ===== Expeditions (the only way to earn money) =====
+const nearLighthouse = () =>
+  Math.hypot(state.boat.x - lighthouse.group.position.x, state.boat.z - lighthouse.group.position.z) < 800;
+const photoOf = (target) => (kind, id) => kind === "photo" && id === target;
+const findOrPhoto = (target) => (kind, id) => id === target;
+
 const GOALS = [
   {
     id: "stacks-sunset",
     title: "Sea Stacks at Sunset",
+    reward: 400,
     hint: "Photograph the sea stacks off the lighthouse while the sun is low, around 17:00–18:15. Press F to take a photo.",
     check: (kind, id) => kind === "photo" && id === "stacks" && shared.uSunDir.value.y < 0.3 && shared.uSunDir.value.y > -0.05,
   },
   {
     id: "wreck",
     title: "The Old Wreck",
-    hint: "A fisherman's chart marks a wreck in clear water along the western coast, well past the cove. Look down into the water.",
-    check: (kind, id) => id === "wreck",
+    reward: 600,
+    hint: "A fisherman's chart marks a wreck in clear water along the western cliffs, far past the cove. Look down into the water.",
+    check: findOrPhoto("wreck"),
   },
   {
     id: "reef",
     title: "Reef Survey",
+    reward: 400,
     hint: "Photograph a school of reef fish over the coral below the cliffs.",
-    check: (kind, id) => kind === "photo" && id === "reeffish",
+    check: photoOf("reeffish"),
   },
   {
     id: "dolphins",
     title: "The Headland Dolphins",
-    hint: "A dolphin pod has been seen playing off the lighthouse headland. Photograph one of them there.",
-    check: (kind, id) =>
-      kind === "photo" &&
-      id === "dolphins" &&
-      Math.hypot(state.boat.x - lighthouse.group.position.x, state.boat.z - lighthouse.group.position.z) < 800,
+    reward: 500,
+    hint: "A dolphin pod has been seen off the lighthouse headland. Photograph one there, before they lose interest in you.",
+    check: (kind, id) => kind === "photo" && id === "dolphins" && nearLighthouse(),
   },
   {
     id: "light",
     title: "A Strange Light",
+    reward: 1000,
     hint: "Fishermen talk about a light under the water off the eastern cliffs, but only after dark. Go and see.",
-    check: (kind, id) => id === "glow",
+    check: findOrPhoto("glow"),
+  },
+  {
+    id: "seals",
+    title: "Seal Count",
+    reward: 500,
+    hint: "A colony of seals hauls out on a bare rock a few hundred metres off the western shore. Photograph them.",
+    check: photoOf("seals"),
+  },
+  {
+    id: "turtles",
+    title: "Turtle Watch",
+    reward: 600,
+    hint: "Green sea turtles circle the lagoon of the little palm island south-east of the lighthouse. Photograph one.",
+    check: photoOf("turtles"),
+  },
+  {
+    id: "goats",
+    title: "The Island Herd",
+    reward: 450,
+    hint: "Wild goats roam the big island far to the east. Photograph them grazing.",
+    check: photoOf("goats"),
+  },
+  {
+    id: "temple",
+    title: "Temple Beneath the Waves",
+    reward: 700,
+    hint: "Divers' stories tell of columns standing in shallow water west of the harbor cove. Find the sunken temple.",
+    check: findOrPhoto("temple"),
+  },
+  {
+    id: "colossus",
+    title: "The Drowned Colossus",
+    reward: 800,
+    hint: "Near the sunken temple lies a great stone face staring up at the surface. Photograph it.",
+    check: photoOf("colossus"),
+  },
+  {
+    id: "freighter",
+    title: "The Rusted Freighter",
+    reward: 500,
+    hint: "A cargo ship ran aground somewhere west of Seal Rock. Photograph what's left of it.",
+    check: photoOf("freighter"),
+  },
+  {
+    id: "sailboat",
+    title: "The Lost Sailboat",
+    reward: 450,
+    hint: "A small sailboat went down on the reef a short way east of the sea stacks. Find it.",
+    check: findOrPhoto("sailboat"),
+  },
+  {
+    id: "watcher",
+    title: "The Watcher",
+    reward: 700,
+    hint: "Among ruins on the hilltop of the eastern island stands a statue pointing out to sea. Photograph it.",
+    check: photoOf("watcher"),
+  },
+  {
+    id: "ferry",
+    title: "Catch the Ferry",
+    reward: 400,
+    hint: "The car ferry crosses the bay a few hundred metres offshore, back and forth all day. Photograph it.",
+    check: photoOf("ferry"),
+  },
+  {
+    id: "tanker",
+    title: "Giant on the Horizon",
+    reward: 500,
+    hint: "An oil tanker creeps along the horizon far out to sea. Get close enough for a photo.",
+    check: photoOf("tanker"),
+  },
+  {
+    id: "coastguard",
+    title: "Coast Guard Patrol",
+    reward: 450,
+    hint: "The coast guard patrols fast along the coast, blue lights flashing. Photograph their boat.",
+    check: photoOf("coastguard"),
+  },
+  {
+    id: "surfers",
+    title: "Surf's Up",
+    reward: 400,
+    hint: "Surfers ride the waves into the harbor cove. Photograph one while it's still light.",
+    check: photoOf("surfers"),
+  },
+  {
+    id: "townlights",
+    title: "Town Lights",
+    reward: 600,
+    hint: "The clifftop town west of the harbor glows after dark. Photograph its lights from the sea at night.",
+    check: photoOf("townlights"),
+  },
+  {
+    id: "delta",
+    title: "Where the River Meets the Sea",
+    reward: 450,
+    hint: "A river reaches the sea through two mouths on the sandy coast east of the lighthouse. Find the delta.",
+    check: findOrPhoto("delta"),
+  },
+  {
+    id: "swamp",
+    title: "Into the Reeds",
+    reward: 500,
+    hint: "Between the river's two mouths lies a reed swamp. Photograph it from the water.",
+    check: photoOf("swamp"),
+  },
+  // Tasks that need gear from the boatyard (only offered once you own it)
+  {
+    id: "deep",
+    title: "The Deep Contact",
+    reward: 900,
+    requires: "sonar",
+    hint: "Fishermen snag their nets on something deep off the far western cliffs, past the town. Find it with sonar.",
+    check: findOrPhoto("deepwreck"),
+  },
+  {
+    id: "bell",
+    title: "Salvage the Bell",
+    reward: 700,
+    requires: "diving",
+    hint: "Dive on the old wreck off the western cliffs and bring up its bell. Stop over the wreck and press X.",
+    check: (kind, id) => kind === "relic" && id === "bell",
+  },
+  {
+    id: "logbook",
+    title: "The Captain's Log",
+    reward: 600,
+    requires: "diving",
+    hint: "Dive on the rusted freighter west of Seal Rock and recover the captain's logbook.",
+    check: (kind, id) => kind === "relic" && id === "logbook",
+  },
+  {
+    id: "fragment",
+    title: "What Lies Beneath the Light",
+    reward: 1200,
+    requires: "diving",
+    hint: "Dive where the strange light glows off the eastern cliffs and see what is down there.",
+    check: (kind, id) => kind === "relic" && id === "fragment1",
   },
 ];
+
+// Where each task's target is (for the radio's search area)
+function goalTarget(goal) {
+  const at = (x, z) => ({ x, z });
+  const shipOf = (type) => vessels.find((v) => v.type === type);
+  switch (goal.id) {
+    case "stacks-sunset":
+    case "dolphins":
+      return at(seaStacks[1].x, seaStacks[1].z);
+    case "wreck":
+    case "bell":
+      return at(WRECK.x, WRECK.z);
+    case "reef":
+      return at(LH_X - 120, shoreZAt(LH_X - 120) + 60);
+    case "light":
+    case "fragment":
+      return at(GLOW.x, GLOW.z);
+    case "seals":
+      return at(ISLAND.seal.x, ISLAND.seal.z);
+    case "turtles":
+      return at(ISLAND.palm.x, ISLAND.palm.z);
+    case "goats":
+    case "watcher":
+      return at(ISLAND.goat.x, ISLAND.goat.z);
+    case "temple":
+      return at(TEMPLE.x, TEMPLE.z);
+    case "colossus":
+      return at(COLOSSUS.x, COLOSSUS.z);
+    case "freighter":
+    case "logbook":
+      return at(FREIGHTER.x, FREIGHTER.z);
+    case "sailboat":
+      return at(SAILBOAT.x, SAILBOAT.z);
+    case "surfers":
+      return at(COVE_X - 100, shoreZAt(COVE_X - 100) + 60);
+    case "townlights":
+      return at(TOWN_CENTER.x, shoreZAt(TOWN_CENTER.x) + 200);
+    case "delta":
+    case "swamp":
+      return at(SWAMP.x, SWAMP.z);
+    case "deep":
+      return at(DEEP_WRECK.x, DEEP_WRECK.z);
+    default: {
+      const ship = shipOf(goal.id);
+      return ship ? at(ship.x, ship.z) : null;
+    }
+  }
+}
 
 const expedition = {
   day: 1,
   funds: 0,
   fuel: 100,
+  fuelMax: 100,
   goal: null,
   goalDone: false,
   completedGoals: new Set(),
@@ -2619,7 +4302,68 @@ const expedition = {
   lastZ: 0,
   warned25: false,
   warned10: false,
+  searchArea: null, // from the radio: { x, z, r }
+  radioReport: "",
+  mysterySolved: false,
 };
+
+// ===== Boatyard upgrades: gear that changes what you can discover =====
+const UPGRADES = [
+  { id: "binoculars", icon: "🔭", name: "Binoculars", price: 600, desc: "Spot wildlife and places from 50% farther away." },
+  { id: "tank", icon: "⛽", name: "Long-range fuel tank", price: 800, desc: "50% more fuel: reach farther and stay out longer." },
+  { id: "camera", icon: "📷", name: "Telephoto camera", price: 700, desc: "Photograph from 50% farther away, and anywhere in the frame." },
+  { id: "radio", icon: "📻", name: "Marine radio", price: 500, desc: "A morning report narrows each task to a search area on your map." },
+  { id: "chart", icon: "🧭", name: "Chartplotter", price: 900, desc: "Your map zooms out and shows everything you have discovered." },
+  { id: "hull", icon: "🛡️", name: "Reinforced hull", price: 1000, desc: "Full speed and normal fuel use in rough seas and storms." },
+  { id: "sonar", icon: "📡", name: "Sonar", price: 1200, desc: "Pings underwater contacts nearby, even ones too deep to see." },
+  { id: "diving", icon: "🤿", name: "Diving gear", price: 1500, desc: "Dive on underwater sites (press X when stopped) to recover relics." },
+];
+const upgrades = new Set();
+const owned = (id) => upgrades.has(id);
+
+// ===== Saved progress (in this browser) =====
+const SAVE_KEY = "coastline-save-v1";
+function saveGame() {
+  try {
+    localStorage.setItem(
+      SAVE_KEY,
+      JSON.stringify({
+        day: expedition.day,
+        funds: expedition.funds,
+        forecast: expedition.forecast,
+        completedGoals: [...expedition.completedGoals],
+        upgrades: [...upgrades],
+        journal,
+        mysterySolved: expedition.mysterySolved,
+      })
+    );
+  } catch (e) {
+    // Storage can be unavailable (private windows, some file:// setups): the game still works, just unsaved
+  }
+}
+function loadGame() {
+  try {
+    const data = JSON.parse(localStorage.getItem(SAVE_KEY) || "null");
+    if (!data) return false;
+    expedition.day = data.day;
+    expedition.funds = data.funds;
+    expedition.forecast = data.forecast;
+    expedition.completedGoals = new Set(data.completedGoals);
+    expedition.mysterySolved = !!data.mysterySolved;
+    for (const id of data.upgrades) upgrades.add(id);
+    for (const id in data.journal) if (journal[id]) journal[id] = data.journal[id];
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+function eraseSave() {
+  try {
+    localStorage.removeItem(SAVE_KEY);
+  } catch (e) {
+    // nothing saved to erase
+  }
+}
 
 // Start at the harbor, facing out along the coast toward the lighthouse
 function placeBoatAtHarbor() {
@@ -2636,36 +4380,135 @@ flock.z = harbor.dockZ;
 
 function chooseGoal() {
   if (expedition.day === 1) return GOALS[0];
-  const open = GOALS.filter((g) => !expedition.completedGoals.has(g.id));
-  const pool = open.length ? open : GOALS;
+  const available = GOALS.filter((g) => !g.requires || owned(g.requires));
+  const open = available.filter((g) => !expedition.completedGoals.has(g.id));
+  // Tasks that just became possible with new gear come first
+  const gear = open.filter((g) => g.requires);
+  const pool = gear.length && Math.random() < 0.6 ? gear : open.length ? open : available;
   return pool[Math.floor(Math.random() * pool.length)];
 }
+
+const RADIO_LINES = [
+  "Harbor radio: a skipper reports it somewhere in here.",
+  "Coast radio: fishermen say you'll want to look around here.",
+  "Radio chatter: 'I'd try around there, if I were you.'",
+];
 
 function showBriefing() {
   if (state.phase === "summary") expedition.day++;
   expedition.goal = chooseGoal();
+  // The radio narrows the task down to a search area (roughly centred, so you still have to look)
+  expedition.searchArea = null;
+  expedition.radioReport = "";
+  if (owned("radio")) {
+    const target = goalTarget(expedition.goal);
+    if (target) {
+      const a = rand(0, Math.PI * 2);
+      const off = rand(0, 120);
+      expedition.searchArea = { x: target.x + Math.cos(a) * off, z: target.z + Math.sin(a) * off, r: 250 };
+      expedition.radioReport = pick(RADIO_LINES) + " (circled on your map)";
+    }
+  }
   state.phase = "briefing";
+  renderBriefing();
+}
+
+function renderBriefing() {
+  state.shopOpen = false;
   overlayTitleEl.textContent = `Day ${expedition.day} — Today's expedition`;
+  const gearList = UPGRADES.filter((u) => owned(u.id)).map((u) => u.icon).join(" ") || "none yet";
   overlayBodyEl.innerHTML = `
     <div class="card">
       <div class="label">Goal</div>
       <div style="font-size:20px;font-weight:600;margin:2px 0 6px">${expedition.goal.title}</div>
       <div>${expedition.goal.hint}</div>
+      <div style="margin-top:8px">Reward: <b>$${expedition.goal.reward}</b></div>
+      ${expedition.radioReport ? `<div style="margin-top:8px">📻 ${expedition.radioReport}</div>` : ""}
       <div style="margin-top:12px" class="label">Conditions</div>
-      <div>Forecast: ${weatherName(expedition.forecast)} · Full tank · Sunset around 18:00</div>
+      <div>Forecast: ${weatherName(expedition.forecast)} · ${owned("tank") ? "Long-range tank" : "Full tank"} · Sunset around 18:00</div>
+      <div style="margin-top:12px" class="label">Your boat</div>
+      <div>Gear: ${gearList} · Funds: $${expedition.funds.toLocaleString()}</div>
     </div>
-    <div class="next">Press Space to cast off</div>`;
+    <div class="next">
+      <button data-ui="shop">🛠️ Boatyard (B)</button>
+      <button data-ui="go">Cast off (Space)</button>
+    </div>`;
   overlayEl.classList.remove("hidden");
   statusEl.textContent = "Briefing";
 }
+
+// ----- Boatyard -----
+function openShop() {
+  if (state.phase !== "briefing" && state.phase !== "summary") return;
+  state.shopOpen = true;
+  renderShop();
+}
+function closeShop() {
+  state.shopOpen = false;
+  if (state.phase === "briefing") renderBriefing();
+  else {
+    overlayTitleEl.textContent = expedition.summaryTitle;
+    overlayBodyEl.innerHTML = expedition.summaryHTML;
+  }
+}
+function renderShop() {
+  overlayTitleEl.textContent = "🛠️ Boatyard";
+  overlayBodyEl.innerHTML = `
+    <div class="card shop">
+      <div class="row"><span class="label">Funds</span><b>$${expedition.funds.toLocaleString()}</b></div>
+      ${UPGRADES.map((u, i) => {
+        const have = owned(u.id);
+        const afford = expedition.funds >= u.price;
+        return `<div class="shop-item${have ? " owned" : ""}">
+          <div><b>${i + 1}. ${u.icon} ${u.name}</b><div class="desc">${u.desc}</div></div>
+          ${
+            have
+              ? `<span class="owned-tag">Owned</span>`
+              : `<button data-buy="${u.id}"${afford ? "" : " disabled"}>$${u.price.toLocaleString()}</button>`
+          }
+        </div>`;
+      }).join("")}
+    </div>
+    <div class="next"><button data-ui="close">Back (B)</button></div>`;
+}
+function buyUpgrade(id) {
+  const u = UPGRADES.find((x) => x.id === id);
+  if (!u || owned(id)) return;
+  if (expedition.funds < u.price) {
+    toast(`Not enough money for the ${u.name} yet.`);
+    return;
+  }
+  expedition.funds -= u.price;
+  upgrades.add(id);
+  saveGame();
+  toast(`${u.icon} ${u.name} fitted to your boat!`, "goal");
+  renderShop();
+}
+
+// Clicks and taps on overlay buttons
+overlayBodyEl.addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  e.stopPropagation();
+  if (btn.dataset.buy) buyUpgrade(btn.dataset.buy);
+  else if (btn.dataset.ui === "shop") openShop();
+  else if (btn.dataset.ui === "close") closeShop();
+  else if (btn.dataset.ui === "go") pressSpace();
+  else if (btn.dataset.ui === "new") startNewGame();
+});
+overlayBodyEl.addEventListener("pointerup", (e) => {
+  if (e.target.closest("button")) e.stopPropagation();
+});
 
 function beginExpedition() {
   placeBoatAtHarbor();
   state.timeOfDay = EXPEDITION_START_HOUR;
   weather.value = weather.target = expedition.forecast;
   weather.timer = rand(60, 120);
+  const fuelMax = owned("tank") ? 150 : 100;
   Object.assign(expedition, {
-    fuel: 100,
+    fuel: fuelMax,
+    fuelMax,
     goalDone: false,
     hours: 0,
     distance: 0,
@@ -2681,6 +4524,7 @@ function beginExpedition() {
   state.phase = "running";
   state.running = true;
   state.paused = false;
+  state.shopOpen = false;
   overlayEl.classList.add("hidden");
   goalTitleEl.textContent = expedition.goal.title;
   goalHintEl.textContent = expedition.goal.hint;
@@ -2704,6 +4548,10 @@ function formatDuration(hours) {
   return `${h}h ${String(m).padStart(2, "0")}m`;
 }
 
+const MYSTERY_TEXT =
+  "The three fragments fit together into a disc of dark metal, faintly warm to the touch. " +
+  "Its markings don't match any chart you own — but they all point east, past Goat Island, beyond the edge of the map…";
+
 function endExpedition(towed) {
   state.running = false;
   state.phase = "summary";
@@ -2713,11 +4561,10 @@ function endExpedition(towed) {
 
   const finds = expedition.newFinds.map((id) => JOURNAL_BY_ID[id]);
   const count = (cats) => finds.filter((f) => cats.includes(f.cat)).length;
-  const lines = [["Discoveries & photos", expedition.earnings]];
-  if (expedition.goalDone) lines.push(["Expedition goal", 500]);
-  if (!towed) lines.push(["Returned safely", 100]);
-  if (!towed && shared.uSunDir.value.y > -0.02) lines.push(["Home before dark", 150]);
-  if (towed) lines.push(["Tow fee (30%)", -Math.round(expedition.earnings * 0.3)]);
+  // Money only comes from the expedition task
+  const reward = expedition.goalDone ? expedition.goal.reward : 0;
+  const lines = [[expedition.goalDone ? `Task: ${expedition.goal.title}` : "Task not completed", reward]];
+  if (towed && reward) lines.push(["Tow fee (30%)", -Math.round(reward * 0.3)]);
   const total = lines.reduce((sum, [, v]) => sum + v, 0);
   expedition.funds += total;
   if (expedition.goalDone) expedition.completedGoals.add(expedition.goal.id);
@@ -2725,29 +4572,47 @@ function endExpedition(towed) {
 
   const row = (label, value) => `<div class="row"><span>${label}</span><span>${value}</span></div>`;
   const money = (v) => `${v < 0 ? "−" : "+"}$${Math.abs(v).toLocaleString()}`;
-  const mystery = expedition.newFinds.includes("glow")
-    ? `<div style="margin-top:10px;opacity:0.85">Something glinted beneath the strange light… You'd need diving gear to reach it.</div>`
-    : "";
+  let mystery = "";
+  if (expedition.newFinds.some((id) => id.startsWith("fragment")) && expedition.mysterySolved) {
+    mystery = `<div style="margin-top:10px;opacity:0.9">✦ ${MYSTERY_TEXT}</div>`;
+  } else if (expedition.newFinds.includes("glow") && !owned("diving")) {
+    mystery = `<div style="margin-top:10px;opacity:0.85">Something glinted beneath the strange light… You'd need diving gear to reach it.</div>`;
+  }
+  const affordable = UPGRADES.filter((u) => !owned(u.id) && expedition.funds >= u.price).length;
 
-  overlayTitleEl.textContent = towed ? "Towed back to harbor" : "Expedition complete";
-  overlayBodyEl.innerHTML = `
+  expedition.summaryTitle = towed ? "Towed back to harbor" : "Expedition complete";
+  expedition.summaryHTML = `
     <div class="card">
       ${row("Time at sea", formatDuration(expedition.hours))}
       ${row("🐬 New wildlife", count(["Wildlife"]))}
-      ${row("🏝️ New places", count(["Locations", "Ocean", "Mysteries"]))}
+      ${row("🏝️ New places", count(["Coast & islands", "Underwater", "Ruins & relics", "Mysteries"]))}
+      ${row("⛵ Boats & people", count(["People & boats"]))}
+      ${row("🏺 Relics recovered", count(["Relics"]))}
       ${row("🌅 Sky & weather", count(["Sky & weather"]))}
-      ${row("📷 Photographs", expedition.photos)}
+      ${row("📷 New photos", expedition.photos)}
       ${row("🗺️ Distance", `${(expedition.distance / 1000).toFixed(1)} km`)}
-      ${row("⛽ Fuel left", `${Math.round(expedition.fuel)}%`)}
+      ${row("⛽ Fuel left", `${Math.round((expedition.fuel / expedition.fuelMax) * 100)}%`)}
       <div style="margin-top:8px"></div>
       ${lines.map(([label, v]) => row(label, money(v))).join("")}
       <div class="row total"><span>Earned today</span><span>${money(total)}</span></div>
       ${row("Funds", `$${expedition.funds.toLocaleString()}`)}
       ${mystery}
     </div>
-    <div class="next">Tomorrow's weather: ${weatherName(expedition.forecast)}<br>Press Space to plan tomorrow's trip</div>`;
+    <div class="next">Tomorrow's weather: ${weatherName(expedition.forecast)}${
+      affordable ? `<br>🛠️ You can afford ${affordable} upgrade${affordable > 1 ? "s" : ""} at the boatyard` : ""
+    }<br>
+      <button data-ui="shop">🛠️ Boatyard (B)</button>
+      <button data-ui="go">Next day (Space)</button>
+    </div>`;
+  overlayTitleEl.textContent = expedition.summaryTitle;
+  overlayBodyEl.innerHTML = expedition.summaryHTML;
   overlayEl.classList.remove("hidden");
   statusEl.textContent = "Back at harbor";
+
+  // Save, ready for the next day
+  expedition.day++;
+  saveGame();
+  expedition.day--;
 }
 
 // ---- Notifications ----
@@ -2774,49 +4639,146 @@ function toScreen(pos) {
   return projected.copy(pos).project(camera);
 }
 
+// Everything that could be spotted or photographed right now, with how it can be seen:
+//   fog:   fades out in the sea haze (so rain and fog shorten how far away you can see it)
+//   under: underwater (only visible through the water in daylight)
+//   lit:   gives off its own light, so it can be seen at night
+//   no pos: all around you (stars, rain, storm)
 function currentSightings(env) {
   const b = state.boat;
   const list = [];
-  const add = (id, pos, range) => list.push({ id, pos, range });
+  const add = (id, pos, range, flags = {}) => list.push({ id, pos, range, ...flags });
   const at = (x, y, z) => new THREE.Vector3(x, y, z);
+  const FOG = { fog: true };
+  const UNDER = { fog: true, under: true };
 
-  if (birds[0].g.visible) add("gulls", at(flock.x, 30, flock.z), 140);
-  for (const f of fishes) if (f.active) add("flyingfish", f.mesh.position.clone(), 60);
-  for (const d of dolphins) if (d.active && d.mesh.position.y > -2) add("dolphins", d.mesh.position.clone(), 160);
-  if (reefBodies.visible) for (const s of schools) add("reeffish", at(s.x, s.y, s.z), 45);
+  if (birds[0].g.visible) add("gulls", at(flock.x, 30, flock.z), 140, FOG);
+  for (const f of fishes) if (f.active) add("flyingfish", f.mesh.position.clone(), 60, FOG);
+  for (const d of dolphins) if (d.active && d.mesh.position.y > -2) add("dolphins", d.mesh.position.clone(), 160, FOG);
+  if (reefBodies.visible) for (const s of schools) add("reeffish", at(s.x, s.y, s.z), 45, UNDER);
 
-  add("harbor", at(harbor.pierX, 2, (harbor.pierZ0 + harbor.pierZ1) / 2), 200);
+  add("harbor", at(harbor.pierX, 2, (harbor.pierZ0 + harbor.pierZ1) / 2), 200, { fog: true, lit: true });
   if (cliffAmount(b.x) > 0.7) {
     const shoreZ = SHORE_Z + headland(b.x) + (noise1(b.x * 0.008) - 0.5) * 60;
     add("cliffs", at(b.x, 20, shoreZ - 25), 400);
   }
-  add("lighthouse", lighthouse.group.position.clone().setY(lighthouse.group.position.y + 35), 900);
+  add("lighthouse", lighthouse.group.position.clone().setY(lighthouse.group.position.y + 20), 900, { lit: true });
   for (const s of seaStacks) add("stacks", at(s.x, 15, s.z), 500);
-  if (inland(b.x, b.z) > -170 && cliffAmount(b.x) > 0.5 && seaBed(b.x, b.z) < -2) add("reef", null, Infinity);
-  add("wreck", at(WRECK.x, WRECK.y + 2, WRECK.z), 70);
-  if (env.lampsOn > 0.5) add("glow", at(GLOW.x, GLOW.y, GLOW.z), 350);
-  if (flight.active) add("airliner", airplane.group.position.clone(), 2600);
 
+  // The reef has to be in view: look at the sea floor ahead of the boat
+  const fx = -Math.sin(b.yaw);
+  const fz = -Math.cos(b.yaw);
+  const rx = b.x + fx * 18;
+  const rz = b.z + fz * 18;
+  if (inland(rx, rz) > -170 && cliffAmount(rx) > 0.5 && seaBed(rx, rz) < -2) add("reef", at(rx, seaBed(rx, rz), rz), 40, UNDER);
+
+  add("wreck", at(WRECK.x, WRECK.y + 2, WRECK.z), 70, UNDER);
+  add("sailboat", at(SAILBOAT.x, SAILBOAT.y + 1, SAILBOAT.z), 60, UNDER);
+  add("freighter", at(FREIGHTER.x, 2, FREIGHTER.z), 450, FOG);
+  add("temple", at(TEMPLE.x, TEMPLE.y + 3, TEMPLE.z), 60, UNDER);
+  add("colossus", at(COLOSSUS.x, COLOSSUS.y + 1, COLOSSUS.z), 50, UNDER);
+  const pI = ISLAND.palm;
+  const sI = ISLAND.seal;
+  const gI = ISLAND.goat;
+  add("palmislet", at(pI.x, 4, pI.z), 380);
+  add("sealrock", at(sI.x, 3, sI.z), 380);
+  add("goatisland", at(gI.x, 10, gI.z), 500);
+  const gTop = islandSummit(gI);
+  add("ruins", at(gTop.x, gTop.y + 3, gTop.z), 220);
+  add("watcher", at(gTop.x, gTop.y + 7, gTop.z), 200); // the statue's chest
+  for (const s of seals) add("seals", s.g.position.clone().setY(s.g.position.y + 0.5), 120);
+  for (const g of goats) add("goats", g.g.position.clone().setY(g.g.position.y + 0.8), 110);
+  for (const tu of turtles) add("turtles", tu.g.position.clone(), 45, UNDER);
+  if (env.lampsOn > 0.5) add("glow", at(GLOW.x, GLOW.y, GLOW.z), 350, { lit: true });
+  if (flight.active) add("airliner", airplane.group.position.clone(), 2600, { lit: true });
+
+  // Boats, the sightseeing plane, and people at the cove
+  const LIT_SHIPS = { ferry: true, tanker: true, coastguard: true };
+  const SHIP_RANGE = { sailboat: 450, tourboat: 400, ferry: 1200, tanker: 1800, coastguard: 600 };
+  const SHIP_ID = { sailboat: "sailboats", tourboat: "tourboat", ferry: "ferry", tanker: "tanker", coastguard: "coastguard" };
+  for (const v of vessels) {
+    add(SHIP_ID[v.type], at(v.x, v.type === "tanker" ? 10 : 3, v.z), SHIP_RANGE[v.type], { lit: !!LIT_SHIPS[v.type] });
+  }
+  if (smallPlane.group.visible) add("smallplane", smallPlane.group.position.clone(), 1500);
+  for (const s of swimmers) if (s.g.visible) add("swimmers", s.g.position.clone().setY(s.g.position.y + 0.25), 90);
+  for (const s of surfers) if (s.g.visible) add("surfers", s.g.position.clone().setY(s.g.position.y + 1), 150);
+  for (const g of sunbathers) if (g.visible) add("sunbathers", g.position.clone().setY(g.position.y + 1), 160);
+
+  // The town, and its lights after dark; the river mouths and the swamp between them
+  const townY = landHeight(TOWN_CENTER.x, TOWN_CENTER.z);
+  add("town", at(TOWN_CENTER.x, townY + 10, TOWN_CENTER.z), 1200);
+  if (env.lampsOn > 0.5) add("townlights", at(TOWN_CENTER.x, townY + 8, TOWN_CENTER.z), 2500, { lit: true });
+  add("delta", at(800, 1.5, shoreZAt(800) - 20), 450);
+  add("swamp", at(SWAMP.x, 2, SWAMP.z), 280);
+
+  // Sunset: you have to be looking toward the sun. Aurora: toward the northern sky.
+  const cam = camera.position;
   const e = shared.uSunDir.value.y;
-  if (e > -0.03 && e < 0.12 && wx.overcast < 0.5) add("sunset", null, Infinity);
+  if (e > -0.03 && e < 0.12 && wx.overcast < 0.5) {
+    add("sunset", cam.clone().addScaledVector(shared.uSunDir.value, 800), Infinity, { lit: true });
+  }
+  if (shared.uAurora.value > 0.35) {
+    add("aurora", cam.clone().add(new THREE.Vector3(0, 0.12, -1).normalize().multiplyScalar(800)), Infinity, { lit: true });
+  }
   if (shared.uStars.value > 0.6) add("stars", null, Infinity);
-  if (shared.uAurora.value > 0.35) add("aurora", null, Infinity);
   if (wx.rain > 0.5) add("rain", null, Infinity);
   if (wx.storm > 0.5) add("storm", null, Infinity);
   return list;
 }
 
-function inRange(s) {
+function inRange(s, rangeFn = (r) => r) {
   if (!s.pos) return true;
   const b = state.boat;
   const dist = s.id === "airliner" ? s.pos.distanceTo(camera.position) : Math.hypot(s.pos.x - b.x, s.pos.z - b.z);
-  return dist < s.range;
+  // Optics change the range, but nothing sees through the fog
+  const range = s.fog ? Math.min(rangeFn(s.range), scene.fog.far) : rangeFn(s.range);
+  return dist < range;
 }
 
+// margin: how much of the screen width counts (1 = anywhere, 0.6 = the middle, for photos).
+// Vertically anywhere on screen counts, since the camera can't be tilted up or down.
 function onScreen(s, margin) {
   if (!s.pos) return true;
   const p = toScreen(s.pos);
-  return !!p && Math.abs(p.x) < margin && Math.abs(p.y) < margin;
+  return !!p && Math.abs(p.x) < margin && Math.abs(p.y) < 0.95;
+}
+
+// Ground height anywhere: the coast and sea floor, plus the islands
+function groundAt(x, z) {
+  let g = landHeight(x, z);
+  for (const I of ISLANDS) {
+    if (Math.hypot(x - I.x, z - I.z) < I.R * 1.3) g = Math.max(g, islandHeight(I, x, z));
+  }
+  return g;
+}
+
+// Is the straight line from the camera to the target clear of terrain, islands and sea stacks?
+function lineOfSight(target) {
+  const from = camera.position;
+  const dist = from.distanceTo(target);
+  const n = clamp(Math.ceil(dist / 8), 12, 120);
+  for (let i = 1; i < n; i++) {
+    const t = i / n;
+    if (t > 0.97) break; // don't count the ground the target itself stands on
+    const x = from.x + (target.x - from.x) * t;
+    const y = from.y + (target.y - from.y) * t;
+    const z = from.z + (target.z - from.z) * t;
+    if (groundAt(x, z) > y + 0.3) return false;
+    for (const s of seaStacks) if (y < s.h && Math.hypot(x - s.x, z - s.z) < s.r) return false;
+  }
+  return true;
+}
+
+// Can you actually see it? In range, in the frame, not hidden behind anything, and lit well enough.
+// margin: how much of the screen counts (1 = anywhere on screen, 0.6 = the middle, for photos)
+function isVisible(s, env, margin, rangeFn) {
+  if (!inRange(s, rangeFn) || !onScreen(s, margin)) return false;
+  if (s.under && env.lightLevel < 0.35) return false; // too dark to see underwater
+  if (!s.lit && s.pos && env.lightLevel < 0.2) {
+    // At night only things close by and above water, lit by the boat's lights, can be seen
+    if (s.under || s.pos.distanceTo(camera.position) > 40) return false;
+  }
+  return !s.pos || lineOfSight(s.pos);
 }
 
 function checkGoal(kind, id) {
@@ -2824,7 +4786,7 @@ function checkGoal(kind, id) {
   if (expedition.goal.check(kind, id)) {
     expedition.goalDone = true;
     goalEl.classList.add("done");
-    toast("★ Expedition goal complete! Head back to the harbor to collect $500.", "goal");
+    toast(`★ Task complete! Head back to the harbor to collect $${expedition.goal.reward}.`, "goal");
   }
 }
 
@@ -2833,19 +4795,27 @@ function discover(id) {
   if (journal[id].seen) return;
   journal[id].seen = true;
   expedition.newFinds.push(id);
-  expedition.earnings += entry.value;
-  toast(`📓 New in your journal: ${entry.name}${entry.value ? ` +$${entry.value}` : ""}`, "discovery");
+  toast(`📓 New in your journal: ${entry.name}`, "discovery");
   if (id === "glow") toast("Something is down there, glinting… out of reach for now.");
   checkGoal("discover", id);
   if (!journalEl.classList.contains("hidden")) renderJournal();
 }
+
+// Distances: you can *spot* things from their full range (farther with binoculars), but to *photograph*
+// them you have to get much closer — about a third of that, though never under 100 m, so things on land
+// stay reachable from the water. Close-range subjects (underwater sites, fish) keep their own range.
+// The telephoto camera stretches photos to about half the spotting range, at least 150 m, and off-centre.
+const spotRange = () => (owned("binoculars") ? (r) => r * 1.5 : (r) => r);
+const photoRange = () =>
+  owned("camera") ? (r) => Math.min(r, Math.max(150, r * 0.55)) : (r) => Math.min(r, Math.max(100, r * 0.35));
+const photoMargin = () => (owned("camera") ? 0.9 : 0.6);
 
 function takePhoto() {
   flashEl.classList.add("on");
   setTimeout(() => flashEl.classList.remove("on"), 40);
   const inFrame = [];
   for (const s of currentSightings(lastEnv)) {
-    if (inRange(s) && onScreen(s, 0.6) && !inFrame.includes(s.id)) inFrame.push(s.id);
+    if (isVisible(s, lastEnv, photoMargin(), photoRange()) && !inFrame.includes(s.id)) inFrame.push(s.id);
   }
   if (!inFrame.length) {
     toast("📷 Nothing notable in the frame");
@@ -2854,16 +4824,15 @@ function takePhoto() {
   for (const id of inFrame) {
     const entry = JOURNAL_BY_ID[id];
     discover(id);
-    expedition.photos++;
     if (!journal[id].photo) {
       journal[id].photo = true;
-      const bonus = Math.round(entry.value * 0.5);
-      expedition.earnings += bonus;
-      toast(`📷 First photo: ${entry.name}${bonus ? ` +$${bonus}` : ""}`, "discovery");
+      expedition.photos++;
+      toast(`📷 Photo added to your journal: ${entry.name}`, "discovery");
+      if (!journalEl.classList.contains("hidden")) renderJournal();
     } else {
-      expedition.earnings += 20;
-      toast(`📷 ${entry.name} +$20`);
+      toast(`📷 You already have a photo of ${entry.name}`);
     }
+    // A task can still need this photo (e.g. at sunset, or in a certain place)
     checkGoal("photo", id);
   }
 }
@@ -2896,11 +4865,157 @@ function toggleJournal() {
   journalEl.classList.toggle("hidden", !show);
 }
 
+// ===== Sonar and diving =====
+// Every underwater site, and the relic a diver can recover there
+const DIVE_SITES = [
+  { site: "wreck", relic: "bell", x: WRECK.x, z: WRECK.z },
+  { site: "sailboat", relic: "compass", x: SAILBOAT.x, z: SAILBOAT.z },
+  { site: "freighter", relic: "logbook", x: FREIGHTER.x, z: FREIGHTER.z },
+  { site: "temple", relic: "coin", x: TEMPLE.x, z: TEMPLE.z },
+  { site: "colossus", relic: "fragment3", x: COLOSSUS.x, z: COLOSSUS.z },
+  { site: "glow", relic: "fragment1", x: GLOW.x, z: GLOW.z },
+  { site: "deepwreck", relic: "fragment2", x: DEEP_WRECK.x, z: DEEP_WRECK.z },
+];
+const SONAR_RANGE = 320;
+const DIVE_RANGE = 28;
+const sonarEl = document.getElementById("sonar");
+const diveBtn = document.querySelector('#touch-buttons [data-act="dive"]');
+let sonarContact = null;
+
+function nearestSite(maxDist) {
+  const b = state.boat;
+  let best = null;
+  for (const s of DIVE_SITES) {
+    const dist = Math.hypot(s.x - b.x, s.z - b.z);
+    if (dist < maxDist && (!best || dist < best.dist)) best = { ...s, dist };
+  }
+  return best;
+}
+
+const ARROWS = ["↑", "↗", "→", "↘", "↓", "↙", "←", "↖"];
+function updateSonar() {
+  const active = owned("sonar") && state.phase === "running";
+  sonarEl.classList.toggle("hidden", !active);
+  sonarContact = null;
+  if (!active) return;
+  const b = state.boat;
+  const c = nearestSite(SONAR_RANGE);
+  if (!c) {
+    sonarEl.textContent = "📡 Sonar: no contacts";
+    return;
+  }
+  sonarContact = c;
+  // Bearing relative to the boat's heading, as an arrow
+  const rel = wrapAngle(Math.atan2(-(c.x - b.x), -(c.z - b.z)) - b.yaw);
+  const arrow = ARROWS[(Math.round(-rel / (Math.PI / 4)) + 8) % 8];
+  const name = journal[c.site].seen ? JOURNAL_BY_ID[c.site].name : "unknown contact";
+  sonarEl.textContent = `📡 ${name} · ${Math.round(c.dist)} m ${arrow}`;
+  // The deep wreck is too deep to see: sonar is the only way to find it
+  if (c.site === "deepwreck" && c.dist < 45 && !journal.deepwreck.seen) {
+    toast("📡 Sonar: something big on the bottom, 20 m down — a wreck!", "discovery");
+    discover("deepwreck");
+  }
+}
+
+function tryDive() {
+  const b = state.boat;
+  const near = nearestSite(DIVE_RANGE);
+  if (!near) {
+    toast("🤿 Nothing to dive on right here.");
+    return;
+  }
+  if (!owned("diving")) {
+    toast("🤿 You need diving gear from the boatyard to dive here.");
+    return;
+  }
+  if (!journal[near.site].seen) {
+    toast("🤿 You haven't found anything here yet. Look for it first.");
+    return;
+  }
+  if (Math.abs(b.speed) > 1.5) {
+    toast("🤿 Slow down and stop over the site first.");
+    return;
+  }
+  const relic = JOURNAL_BY_ID[near.relic];
+  if (journal[near.relic].seen) {
+    toast(`🤿 You've already recovered the ${relic.name} here.`);
+    return;
+  }
+  // The dive: a blue fade, some time passes, and the relic comes up
+  flashEl.classList.add("dive");
+  setTimeout(() => flashEl.classList.remove("dive"), 1400);
+  state.timeOfDay = (state.timeOfDay + 0.33) % 24;
+  expedition.hours += 0.33;
+  journal[near.relic].seen = true;
+  journal[near.relic].photo = true;
+  expedition.newFinds.push(near.relic);
+  toast(`🤿 You dive to the ${JOURNAL_BY_ID[near.site].name} and bring up: ${relic.name}!`, "discovery");
+  if (near.relic === "logbook") toast("📖 The last entry mentions 'a light beneath the eastern cliffs' and 'the one who points'.");
+  const fragments = ["fragment1", "fragment2", "fragment3"].filter((id) => journal[id].seen).length;
+  if (near.relic.startsWith("fragment")) {
+    if (fragments < 3) toast(`✦ Artifact fragments: ${fragments} of 3`, "goal");
+    else if (!expedition.mysterySolved) {
+      expedition.mysterySolved = true;
+      toast("✦ The three fragments fit together… something about this coast is not what it seems.", "goal");
+    }
+  }
+  checkGoal("relic", near.relic);
+  if (!journalEl.classList.contains("hidden")) renderJournal();
+}
+
+// ===== White highlights on subjects you haven't photographed yet =====
+const targetsEl = document.getElementById("targets");
+const targetPool = [];
+let targetList = [];
+function targetMarker(i) {
+  if (!targetPool[i]) {
+    const el = document.createElement("div");
+    el.className = "target";
+    el.innerHTML = "<span></span>";
+    targetsEl.appendChild(el);
+    targetPool[i] = el;
+  }
+  return targetPool[i];
+}
+function updatePhotoTargets(env, refresh) {
+  const show = state.phase === "running" && !state.paused;
+  if (refresh && show) {
+    // Visible subjects not yet in the journal as a photo, nearest one per kind
+    const best = {};
+    for (const s of currentSightings(env)) {
+      if (!s.pos || journal[s.id].photo) continue;
+      if (!isVisible(s, env, 1.0, photoRange())) continue;
+      const d = s.pos.distanceTo(camera.position);
+      if (!best[s.id] || d < best[s.id].d) best[s.id] = { s, d };
+    }
+    targetList = Object.values(best).slice(0, 6);
+  }
+  let n = 0;
+  if (show) {
+    for (const { s } of targetList) {
+      const p = toScreen(s.pos);
+      if (!p || Math.abs(p.x) > 1 || Math.abs(p.y) > 1) continue;
+      const el = targetMarker(n++);
+      el.style.display = "block";
+      el.style.left = `${((p.x + 1) / 2) * window.innerWidth}px`;
+      el.style.top = `${((1 - p.y) / 2) * window.innerHeight}px`;
+      const ready = Math.abs(p.x) < photoMargin();
+      el.classList.toggle("ready", ready);
+      el.firstChild.textContent = ready ? `📷 ${JOURNAL_BY_ID[s.id].name}` : JOURNAL_BY_ID[s.id].name;
+    }
+  }
+  for (let i = n; i < targetPool.length; i++) targetPool[i].style.display = "none";
+}
+
 // ---- Per-frame expedition update ----
-let lastEnv = { lampsOn: 0 };
+let lastEnv = { lampsOn: 0, light: 1, lightLevel: 1 };
+let spotFrame = 0;
 
 function updateExpedition(dt, t, env) {
   lastEnv = env;
+  updateIslandLife(dt, t);
+  updateTraffic(dt, t, env);
+  updateBeachLife(dt, t, env);
 
   // Harbor lamp and the strange light glow at night
   harborScene.lampMat.emissiveIntensity = 2 * env.lampsOn;
@@ -2909,17 +5024,24 @@ function updateExpedition(dt, t, env) {
   strangeGlow.halo.material.opacity = env.lampsOn * pulse;
   strangeGlow.core.material.emissiveIntensity = 0.3 + 2 * env.lampsOn * pulse;
 
+  // Gear that shows on screen: sonar readout, dive button, and white rings on new photo subjects
+  updateSonar();
+  if (diveBtn) diveBtn.classList.toggle("hidden", !owned("diving"));
+  updatePhotoTargets(env, spotFrame % 6 === 0);
+
   if (state.phase !== "running") return;
   const b = state.boat;
 
-  // Fuel: idling sips, full throttle gulps, rough seas cost more
-  const burn = (0.012 + Math.abs(b.throttle) * 0.34 * (0.4 + (0.6 * Math.abs(b.speed)) / MAX_FORWARD)) * (1 + 0.5 * wx.storm);
+  // Fuel: idling sips, full throttle gulps; rough seas cost more unless the hull is reinforced
+  const seaPenalty = owned("hull") ? 1 : 1 + 0.5 * wx.storm;
+  const burn = (0.012 + Math.abs(b.throttle) * 0.34 * (0.4 + (0.6 * Math.abs(b.speed)) / MAX_FORWARD)) * seaPenalty;
   expedition.fuel = Math.max(0, expedition.fuel - burn * dt);
-  if (expedition.fuel < 25 && !expedition.warned25) {
+  const fuelFrac = expedition.fuel / expedition.fuelMax;
+  if (fuelFrac < 0.25 && !expedition.warned25) {
     expedition.warned25 = true;
     toast("⛽ Fuel at 25%. Think about heading home.");
   }
-  if (expedition.fuel < 10 && !expedition.warned10) {
+  if (fuelFrac < 0.1 && !expedition.warned10) {
     expedition.warned10 = true;
     toast("⛽ Fuel at 10%!");
   }
@@ -2928,17 +5050,281 @@ function updateExpedition(dt, t, env) {
   expedition.lastX = b.x;
   expedition.lastZ = b.z;
 
-  // Spot anything in view and in range
-  for (const s of currentSightings(env)) {
-    if (!journal[s.id].seen && inRange(s) && onScreen(s, 1.0)) discover(s.id);
+  // Spot anything visible (checked a few times a second; the line-of-sight test isn't free)
+  if (++spotFrame % 6 === 0) {
+    for (const s of currentSightings(env)) {
+      if (!journal[s.id].seen && isVisible(s, env, 1.0, spotRange())) discover(s.id);
+    }
   }
 
   // Context prompt
   let prompt = "";
+  const site = nearestSite(DIVE_RANGE);
   if (nearHarbor() && expedition.hours > 0.05) prompt = "Press E to dock and end today's expedition";
-  else if (expedition.fuel <= 0) prompt = "Out of fuel! Press E to radio for a tow (costs 30% of today's finds)";
+  else if (expedition.fuel <= 0) prompt = "Out of fuel! Press E to radio for a tow (costs 30% of today's task reward)";
+  else if (site && journal[site.site].seen && !journal[site.relic].seen) {
+    const name = JOURNAL_BY_ID[site.site].name;
+    if (!owned("diving")) prompt = `You could dive on the ${name} here — with diving gear from the boatyard`;
+    else if (Math.abs(b.speed) > 1.5) prompt = `Stop over the ${name} to dive`;
+    else prompt = `Press X to dive on the ${name}`;
+  }
   promptEl.textContent = prompt;
   promptEl.classList.toggle("hidden", !prompt);
+}
+
+// ===== Minimap: north-up, centred on the boat, with home and the lighthouse =====
+const minimapEl = document.getElementById("minimap");
+const mm = minimapEl.getContext("2d");
+const MAP_RANGE_DEFAULT = 1600; // metres from the boat to the edge of the map (2600 with the chartplotter)
+// Places the chartplotter marks once discovered
+const CHART_POINTS = [
+  { id: "wreck", x: WRECK.x, z: WRECK.z, color: "#9ad1ff" },
+  { id: "deepwreck", x: DEEP_WRECK.x, z: DEEP_WRECK.z, color: "#9ad1ff" },
+  { id: "sailboat", x: SAILBOAT.x, z: SAILBOAT.z, color: "#9ad1ff" },
+  { id: "freighter", x: FREIGHTER.x, z: FREIGHTER.z, color: "#9ad1ff" },
+  { id: "temple", x: TEMPLE.x, z: TEMPLE.z, color: "#e8dcc0" },
+  { id: "colossus", x: COLOSSUS.x, z: COLOSSUS.z, color: "#e8dcc0" },
+  { id: "glow", x: GLOW.x, z: GLOW.z, color: "#55ffe6" },
+  { id: "town", x: TOWN_CENTER.x, z: TOWN_CENTER.z, color: "#ffffff" },
+  { id: "delta", x: 800, z: shoreZAt(800) - 20, color: "#5fa8d3" },
+];
+const coastLine = [];
+for (let x = -3000; x <= 3000; x += 20) coastLine.push([x, SHORE_Z + headland(x) + (noise1(x * 0.008) - 0.5) * 60]);
+
+function drawMinimap() {
+  const MAP_RANGE = owned("chart") ? 2600 : MAP_RANGE_DEFAULT; // the chartplotter zooms out
+  const W = minimapEl.width;
+  const c = W / 2;
+  const R = c - 6;
+  const s = R / MAP_RANGE;
+  const b = state.boat;
+  const toMap = (x, z) => [c + (x - b.x) * s, c + (z - b.z) * s];
+
+  mm.clearRect(0, 0, W, W);
+  mm.save();
+  mm.beginPath();
+  mm.arc(c, c, R, 0, Math.PI * 2);
+  mm.clip();
+  mm.fillStyle = "rgba(12, 60, 84, 0.78)";
+  mm.fillRect(0, 0, W, W);
+
+  // Coast (land lies north of the coastline, i.e. up)
+  mm.fillStyle = "#cdb88c";
+  mm.beginPath();
+  coastLine.forEach(([x, z], i) => {
+    const [px, py] = toMap(x, z);
+    if (i === 0) mm.moveTo(px, py);
+    else mm.lineTo(px, py);
+  });
+  mm.lineTo(toMap(3000, 0)[0], -20);
+  mm.lineTo(toMap(-3000, 0)[0], -20);
+  mm.closePath();
+  mm.fill();
+
+  // Islands and sea stacks
+  for (const I of ISLANDS) {
+    const [px, py] = toMap(I.x, I.z);
+    mm.beginPath();
+    mm.arc(px, py, Math.max(3, I.R * s), 0, Math.PI * 2);
+    mm.fill();
+  }
+  mm.fillStyle = "#e8dcc0";
+  for (const st of seaStacks) {
+    const [px, py] = toMap(st.x, st.z);
+    mm.fillRect(px - 1.5, py - 1.5, 3, 3);
+  }
+
+  // Swamp, river and town
+  mm.fillStyle = "rgba(90, 110, 60, 0.9)";
+  const [swx, swy] = toMap(SWAMP.x, SWAMP.z);
+  mm.beginPath();
+  mm.arc(swx, swy, SWAMP.r * 0.8 * s, 0, Math.PI * 2);
+  mm.fill();
+  mm.strokeStyle = "#5fa8d3";
+  mm.lineCap = "round";
+  for (const seg of RIVER_SEGS) {
+    mm.lineWidth = Math.max(2, seg.w * s * 2.5);
+    mm.beginPath();
+    mm.moveTo(...toMap(seg.ax, seg.az));
+    mm.lineTo(...toMap(seg.bx, seg.bz));
+    mm.stroke();
+  }
+  mm.fillStyle = "#8d8a86";
+  for (let x = TOWN.x0; x <= TOWN.x1; x += 40) {
+    const [px, py] = toMap(x, shoreZAt(x) - 70);
+    mm.fillRect(px - 3, py - 12 * s * 20, 6, 12 * s * 20);
+  }
+
+  // Home and lighthouse markers, pinned to the rim when off the map
+  const marker = (x, z, label, color) => {
+    let [px, py] = toMap(x, z);
+    const dx = px - c;
+    const dy = py - c;
+    const d = Math.hypot(dx, dy);
+    const edge = R - 14;
+    if (d > edge) {
+      px = c + (dx / d) * edge;
+      py = c + (dy / d) * edge;
+    }
+    mm.fillStyle = color;
+    mm.beginPath();
+    mm.arc(px, py, 12, 0, Math.PI * 2);
+    mm.fill();
+    mm.fillStyle = "#08202c";
+    mm.font = "bold 15px system-ui, sans-serif";
+    mm.textAlign = "center";
+    mm.textBaseline = "middle";
+    mm.fillText(label, px, py + 1);
+  };
+  marker(harbor.dockX, harbor.dockZ, "H", "#7fd1b9");
+  marker(lighthouse.group.position.x, lighthouse.group.position.z, "L", "#f2c14e");
+
+  // Chartplotter: every place you've discovered is marked
+  if (owned("chart")) {
+    for (const p of CHART_POINTS) {
+      if (!journal[p.id].seen) continue;
+      const [px, py] = toMap(p.x, p.z);
+      mm.fillStyle = p.color;
+      mm.beginPath();
+      mm.arc(px, py, 5, 0, Math.PI * 2);
+      mm.fill();
+    }
+  }
+  // Radio: today's search area
+  if (expedition.searchArea && state.phase === "running" && !expedition.goalDone) {
+    const [px, py] = toMap(expedition.searchArea.x, expedition.searchArea.z);
+    mm.strokeStyle = "rgba(242, 193, 78, 0.95)";
+    mm.lineWidth = 3;
+    mm.setLineDash([8, 6]);
+    mm.beginPath();
+    mm.arc(px, py, expedition.searchArea.r * s, 0, Math.PI * 2);
+    mm.stroke();
+    mm.setLineDash([]);
+  }
+  // Sonar: a pulsing ring on the nearest contact
+  if (sonarContact) {
+    const [px, py] = toMap(sonarContact.x, sonarContact.z);
+    const ping = (performance.now() / 1200) % 1;
+    mm.strokeStyle = `rgba(120, 255, 200, ${1 - ping})`;
+    mm.lineWidth = 3;
+    mm.beginPath();
+    mm.arc(px, py, 4 + ping * 22, 0, Math.PI * 2);
+    mm.stroke();
+  }
+
+  // The boat: an arrow pointing where it's heading
+  const fx = -Math.sin(b.yaw);
+  const fz = -Math.cos(b.yaw);
+  mm.save();
+  mm.translate(c, c);
+  mm.rotate(Math.atan2(fz, fx) + Math.PI / 2);
+  mm.fillStyle = "#ffffff";
+  mm.beginPath();
+  mm.moveTo(0, -13);
+  mm.lineTo(8, 10);
+  mm.lineTo(0, 5);
+  mm.lineTo(-8, 10);
+  mm.closePath();
+  mm.fill();
+  mm.restore();
+
+  // Distances home and to the lighthouse
+  const km = (x, z) => (Math.hypot(x - b.x, z - b.z) / 1000).toFixed(1);
+  mm.fillStyle = "rgba(255,255,255,0.9)";
+  mm.font = "600 18px system-ui, sans-serif";
+  mm.textAlign = "center";
+  mm.fillText(
+    `H ${km(harbor.dockX, harbor.dockZ)} km · L ${km(lighthouse.group.position.x, lighthouse.group.position.z)} km`,
+    c,
+    W - 34
+  );
+  mm.restore();
+
+  mm.strokeStyle = "rgba(255,255,255,0.5)";
+  mm.lineWidth = 3;
+  mm.beginPath();
+  mm.arc(c, c, R, 0, Math.PI * 2);
+  mm.stroke();
+  mm.fillStyle = "#fff";
+  mm.font = "bold 16px system-ui, sans-serif";
+  mm.fillText("N", c, 16);
+}
+
+// ===== Touch controls (phones and tablets) =====
+const isTouchDevice = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+if (isTouchDevice) {
+  document.getElementById("touch").classList.remove("hidden");
+  document.querySelector("#overlay .hint").textContent =
+    "Left stick: throttle and steer · drag the view to look around, pinch to zoom · 📷 photo · 📓 journal · ⚓ dock · 🎥 camera behind boat · ⏩ hold to speed up time · ⏸ pause · tap to continue";
+
+  // Joystick: up/down = throttle, left/right = steer
+  const stick = document.getElementById("stick");
+  const knob = document.getElementById("stick-knob");
+  let stickId = null;
+  const moveStick = (e) => {
+    const r = stick.getBoundingClientRect();
+    const max = r.width / 2;
+    let dx = e.clientX - (r.left + max);
+    let dy = e.clientY - (r.top + max);
+    const d = Math.hypot(dx, dy);
+    if (d > max) {
+      dx = (dx / d) * max;
+      dy = (dy / d) * max;
+    }
+    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    const dead = (v) => (Math.abs(v) < 0.15 ? 0 : v);
+    touch.throttle = dead(-dy / max);
+    touch.turn = dead(-dx / max);
+  };
+  const releaseStick = () => {
+    stickId = null;
+    touch.active = false;
+    touch.throttle = touch.turn = 0;
+    knob.style.transform = "";
+  };
+  stick.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    stickId = e.pointerId;
+    stick.setPointerCapture(e.pointerId);
+    touch.active = true;
+    moveStick(e);
+  });
+  stick.addEventListener("pointermove", (e) => {
+    if (e.pointerId === stickId) moveStick(e);
+  });
+  stick.addEventListener("pointerup", releaseStick);
+  stick.addEventListener("pointercancel", releaseStick);
+
+  // Buttons
+  for (const btn of document.querySelectorAll("#touch-buttons button")) {
+    const act = btn.dataset.act;
+    btn.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (act === "time") keys.add("KeyT");
+      else if (act === "journal") toggleJournal();
+      else if (act === "pause") pressSpace();
+      else if (act === "camera") resetOrbit();
+      else if (state.phase === "running" && !state.paused) {
+        if (act === "photo") takePhoto();
+        if (act === "dock") tryEndExpedition();
+        if (act === "dive") tryDive();
+      }
+    });
+    const up = (e) => {
+      e.stopPropagation();
+      if (act === "time") keys.delete("KeyT");
+    };
+    btn.addEventListener("pointerup", up);
+    btn.addEventListener("pointercancel", up);
+    btn.addEventListener("pointerleave", up);
+  }
+
+  // Tap anywhere else (without dragging the view) to continue from the title, briefing, summary or pause screens
+  canvas.addEventListener("pointerup", () => {
+    if (dragMoved < 10 && (state.phase !== "running" || state.paused)) pressSpace();
+  });
 }
 
 // ===== Render =====
@@ -2946,7 +5332,11 @@ function render() {
   const b = state.boat;
 
   // Keep the water grid under the boat, snapped to the grid so it doesn't swim
-  water.position.set(Math.round(b.x / WATER_STEP) * WATER_STEP, 0, Math.round(b.z / WATER_STEP) * WATER_STEP);
+  // Keep the water grid centred on the camera (snapped so it doesn't swim), with the far ocean around it
+  const cx = Math.round(camera.position.x / WATER_STEP) * WATER_STEP;
+  const cz = Math.round(camera.position.z / WATER_STEP) * WATER_STEP;
+  water.position.set(cx, 0, cz);
+  farOcean.position.set(cx, 0, cz);
 
   sky.position.copy(camera.position);
   waterUniforms.uCamPos.value.copy(camera.position);
@@ -2965,9 +5355,9 @@ function render() {
   boat.headlight.target.getWorldPosition(tmpVec);
   waterUniforms.uBoatSpotDir.value.copy(tmpVec).sub(lightPos[4]).normalize();
 
-  scoreEl.textContent = `$${(expedition.funds + (state.running ? expedition.earnings : 0)).toLocaleString()}`;
-  const fuel = Math.round(expedition.fuel);
-  fuelFillEl.style.width = `${expedition.fuel}%`;
+  scoreEl.textContent = `$${expedition.funds.toLocaleString()}`;
+  const fuel = Math.round((expedition.fuel / expedition.fuelMax) * 100);
+  fuelFillEl.style.width = `${fuel}%`;
   fuelFillEl.classList.toggle("low", fuel <= 25 && fuel > 0);
   fuelFillEl.classList.toggle("empty", fuel <= 0);
   fuelPctEl.textContent = `${fuel}%`;
@@ -2977,6 +5367,7 @@ function render() {
   )} kn`;
 
   renderer.render(scene, camera);
+  drawMinimap();
 }
 
 // ===== Loop =====
@@ -2987,8 +5378,30 @@ updateWeather(0, false);
 applyEnvironment(state.timeOfDay);
 updateBoat(0, 0, false);
 updateCamera(0, true);
-overlayTitleEl.textContent = "Press Space to start";
-overlayBodyEl.innerHTML = `<div class="next">A small boat, a long coastline, and a journal to fill.</div>`;
+
+// Title screen: continue a saved game, or start fresh
+const hasSave = loadGame();
+let confirmNew = false;
+function renderTitle() {
+  overlayTitleEl.textContent = hasSave ? "Welcome back" : "Press Space to start";
+  const found = JOURNAL.filter((e) => journal[e.id].seen).length;
+  overlayBodyEl.innerHTML = hasSave
+    ? `<div class="next">Day ${expedition.day} · $${expedition.funds.toLocaleString()} · ${found}/${JOURNAL.length} in your journal · ${upgrades.size}/${UPGRADES.length} upgrades<br>
+         <button data-ui="go">Continue (Space)</button>
+         <button data-ui="new">${confirmNew ? "Really erase your progress? (N)" : "New game (N)"}</button></div>`
+    : `<div class="next">A small boat, a long coastline, and a journal to fill.</div>`;
+}
+function startNewGame() {
+  if (!hasSave) return;
+  if (!confirmNew) {
+    confirmNew = true;
+    renderTitle();
+    return;
+  }
+  eraseSave();
+  location.reload();
+}
+renderTitle();
 
 function loop(now) {
   const dt = Math.min((now - last) / 1000, 0.05); // cap to avoid big jumps
