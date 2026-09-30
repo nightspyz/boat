@@ -1,0 +1,264 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  color: #eee;
+  font-family: system-ui, sans-serif;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+}
+
+#game {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+#hud {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 16px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+}
+
+#overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.35);
+  text-align: center;
+  pointer-events: none;
+}
+
+#overlay.hidden {
+  display: none;
+}
+
+#overlay-title {
+  font-size: 32px;
+}
+
+#overlay .hint {
+  font-size: 15px;
+  opacity: 0.85;
+  padding: 0 16px;
+}
+
+/* ===== Expedition UI ===== */
+.hidden {
+  display: none !important;
+}
+
+.fuel-bar {
+  display: inline-block;
+  width: 90px;
+  height: 8px;
+  margin: 0 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+#fuel-fill {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: #7fd1b9;
+  transition: background 0.3s;
+}
+
+#fuel-fill.low {
+  background: #f0a04b;
+}
+
+#fuel-fill.empty {
+  background: #e05a4f;
+}
+
+#goal {
+  position: absolute;
+  top: 44px;
+  left: 16px;
+  max-width: 340px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: rgba(5, 20, 30, 0.55);
+  font-size: 14px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+#goal-title {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+#goal.done #goal-title::after {
+  content: " ✓";
+  color: #7fd1b9;
+}
+
+#goal-hint {
+  opacity: 0.8;
+}
+
+#prompt {
+  position: absolute;
+  bottom: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: rgba(5, 20, 30, 0.65);
+  font-size: 15px;
+  text-align: center;
+  pointer-events: none;
+}
+
+#toasts {
+  position: absolute;
+  top: 44px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.toast {
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: rgba(5, 20, 30, 0.7);
+  font-size: 15px;
+  animation: toast-in 0.3s ease-out;
+  transition: opacity 0.6s;
+}
+
+.toast.discovery {
+  border-left: 3px solid #7fd1b9;
+}
+
+.toast.goal {
+  border-left: 3px solid #f2c14e;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+#flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.35s ease-out;
+}
+
+#flash.on {
+  opacity: 0.75;
+  transition: none;
+}
+
+#overlay-body {
+  max-width: 460px;
+  padding: 0 16px;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+#overlay-body .card {
+  padding: 16px 20px;
+  border-radius: 10px;
+  background: rgba(5, 20, 30, 0.7);
+  text-align: left;
+}
+
+#overlay-body .label {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+#overlay-body .row {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+#overlay-body .total {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  font-weight: 600;
+}
+
+#overlay-body .next {
+  margin-top: 12px;
+  text-align: center;
+}
+
+#journal {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(560px, calc(100% - 32px));
+  max-height: calc(100% - 96px);
+  overflow-y: auto;
+  padding: 18px 22px;
+  border-radius: 12px;
+  background: rgba(5, 20, 30, 0.85);
+  font-size: 15px;
+  pointer-events: none;
+}
+
+#journal h2 {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+#journal h3 {
+  margin: 14px 0 4px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+#journal .entry {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+}
+
+#journal .entry.unknown {
+  opacity: 0.45;
+}

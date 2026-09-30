@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Game</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main id="app">
+    <canvas id="game" aria-label="Game canvas"></canvas>
+    <div id="hud">
+      <span id="score">$0</span>
+      <span id="fuel">Fuel <span class="fuel-bar"><span id="fuel-fill"></span></span> <span id="fuel-pct">100%</span></span>
+      <span id="speed">0 kn</span>
+      <span id="clock">15:00</span>
+      <span id="status">Press Space to start</span>
+    </div>
+    <div id="goal" class="hidden">
+      <div id="goal-title"></div>
+      <div id="goal-hint"></div>
+    </div>
+    <div id="prompt" class="hidden"></div>
+    <div id="toasts"></div>
+    <div id="flash"></div>
+    <div id="overlay">
+      <div id="overlay-title">Press Space to start</div>
+      <div id="overlay-body"></div>
+      <div class="hint">W / S throttle · A / D steer · F photograph · J journal · E dock · hold T to speed up time · Space to pause</div>
+    </div>
+    <div id="journal" class="hidden"></div>
+  </main>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
