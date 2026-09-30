@@ -617,6 +617,35 @@ const WATER_STEP = WATER_SIZE / WATER_SEGMENTS;
 const waterGeo = new THREE.PlaneGeometry(WATER_SIZE, WATER_SIZE, WATER_SEGMENTS, WATER_SEGMENTS);
 waterGeo.rotateX(-Math.PI / 2);
 
+// The water doesn't write depth (so fish and dolphins can be seen through it), which means it can't
+// hide its own far side. So draw its triangles from the farthest to the nearest: the grid is always
+// centred on the camera, so nearer waves are then always drawn last, on top of the distant ones.
+function sortWaterFarToNear(geo) {
+  const pos = geo.attributes.position;
+  const idx = geo.index.array;
+  const triCount = idx.length / 3;
+  const order = new Array(triCount);
+  const dist = new Float32Array(triCount);
+  for (let t = 0; t < triCount; t++) {
+    let cx = 0;
+    let cz = 0;
+    for (let k = 0; k < 3; k++) {
+      cx += pos.getX(idx[t * 3 + k]);
+      cz += pos.getZ(idx[t * 3 + k]);
+    }
+    dist[t] = cx * cx + cz * cz;
+    order[t] = t;
+  }
+  order.sort((a, b) => dist[b] - dist[a]);
+  const sorted = new idx.constructor(idx.length);
+  order.forEach((t, i) => {
+    sorted[i * 3] = idx[t * 3];
+    sorted[i * 3 + 1] = idx[t * 3 + 1];
+    sorted[i * 3 + 2] = idx[t * 3 + 2];
+  });
+  geo.setIndex(new THREE.BufferAttribute(sorted, 1));
+}
+sortWaterFarToNear(waterGeo);
 const waterUniforms = Object.assign({}, shared, {
   uWaves: { value: WAVES.map((w) => new THREE.Vector4(w.dx, w.dz, w.k, w.steep)) },
   uWaveScale: { value: 1 },
@@ -952,7 +981,9 @@ const farOcean = new THREE.Mesh(
     `,
   })
 );
-farOcean.renderOrder = 1;
+// Drawn after the land (so it covers the underwater slopes) but before the detailed water,
+// so near wave crests are painted over it instead of being cut off by it at the horizon
+farOcean.renderOrder = 0.5;
 farOcean.frustumCulled = false;
 scene.add(farOcean);
 

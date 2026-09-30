@@ -39,4 +39,4 @@ Following the game plan: Explore → Discover → Decide → Return → Upgrade 
 - [x] Sonar, diving, relics and the first artifact mystery
 - [x] Saved progress, Continue / New game
 - [x] Minimap, free orbit camera, touch controls
-- [x] Fixes: stuck boat, water edges, zigzag cliff silhouettes
+- [x] Fixes: stuck boat, water edges, zigzag waves (water drawn far-to-near; far ocean drawn before it), smoother cliff outline
