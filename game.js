@@ -4052,6 +4052,22 @@ const JOURNAL = [
   { id: "storm", cat: "Sky & weather", name: "Storm" },
 ];
 const JOURNAL_BY_ID = Object.fromEntries(JOURNAL.map((e) => [e.id, e]));
+
+// What each discovery is worth: paid once when first found; a first photo pays half again on top.
+// Rarer, farther or harder things are worth more.
+const JOURNAL_VALUES = {
+  gulls: 50, flyingfish: 80, reeffish: 150, dolphins: 200, turtles: 250, seals: 200, goats: 150,
+  harbor: 0, cliffs: 60, lighthouse: 100, stacks: 150, palmislet: 120, sealrock: 120, goatisland: 150,
+  town: 120, townlights: 200, delta: 150, swamp: 150,
+  reef: 120, wreck: 300, sailboat: 200, freighter: 200, deepwreck: 400,
+  temple: 350, colossus: 400, ruins: 250, watcher: 300, glow: 500,
+  bell: 300, coin: 250, logbook: 200, compass: 200, fragment1: 600, fragment2: 600, fragment3: 600,
+  sailboats: 50, tourboat: 60, ferry: 80, tanker: 120, coastguard: 100, smallplane: 80,
+  swimmers: 40, surfers: 80, sunbathers: 30,
+  airliner: 60, sunset: 80, stars: 80, aurora: 300, rain: 60, storm: 150,
+};
+for (const e of JOURNAL) e.value = JOURNAL_VALUES[e.id] || 0;
+const photoValue = (entry) => Math.round(entry.value * 0.5);
 const journal = Object.fromEntries(JOURNAL.map((e) => [e.id, { seen: false, photo: false }]));
 
 // ===== Expeditions (the only way to earn money) =====
@@ -4297,6 +4313,9 @@ const expedition = {
   distance: 0,
   photos: 0,
   earnings: 0,
+  discoveryEarnings: 0,
+  photoEarnings: 0,
+  relicEarnings: 0,
   newFinds: [],
   lastX: 0,
   lastZ: 0,
@@ -4514,6 +4533,9 @@ function beginExpedition() {
     distance: 0,
     photos: 0,
     earnings: 0,
+    discoveryEarnings: 0,
+    photoEarnings: 0,
+    relicEarnings: 0,
     newFinds: [],
     lastX: state.boat.x,
     lastZ: state.boat.z,
@@ -4561,10 +4583,16 @@ function endExpedition(towed) {
 
   const finds = expedition.newFinds.map((id) => JOURNAL_BY_ID[id]);
   const count = (cats) => finds.filter((f) => cats.includes(f.cat)).length;
-  // Money only comes from the expedition task
+  // Today's pay: every new discovery, every first photo, every relic, plus the task reward
   const reward = expedition.goalDone ? expedition.goal.reward : 0;
-  const lines = [[expedition.goalDone ? `Task: ${expedition.goal.title}` : "Task not completed", reward]];
-  if (towed && reward) lines.push(["Tow fee (30%)", -Math.round(reward * 0.3)]);
+  const lines = [
+    ["📓 New discoveries", expedition.discoveryEarnings],
+    ["📷 New photos", expedition.photoEarnings],
+  ];
+  if (expedition.relicEarnings) lines.push(["🏺 Relics", expedition.relicEarnings]);
+  lines.push([expedition.goalDone ? `★ Task: ${expedition.goal.title}` : "★ Task not completed", reward]);
+  const earned = lines.reduce((sum, [, v]) => sum + v, 0);
+  if (towed && earned) lines.push(["Tow fee (30%)", -Math.round(earned * 0.3)]);
   const total = lines.reduce((sum, [, v]) => sum + v, 0);
   expedition.funds += total;
   if (expedition.goalDone) expedition.completedGoals.add(expedition.goal.id);
@@ -4593,9 +4621,10 @@ function endExpedition(towed) {
       ${row("🗺️ Distance", `${(expedition.distance / 1000).toFixed(1)} km`)}
       ${row("⛽ Fuel left", `${Math.round((expedition.fuel / expedition.fuelMax) * 100)}%`)}
       <div style="margin-top:8px"></div>
+      ${row("Funds before the trip", `$${(expedition.funds - total).toLocaleString()}`)}
       ${lines.map(([label, v]) => row(label, money(v))).join("")}
       <div class="row total"><span>Earned today</span><span>${money(total)}</span></div>
-      ${row("Funds", `$${expedition.funds.toLocaleString()}`)}
+      ${row("<b>Funds now</b>", `<b>$${expedition.funds.toLocaleString()}</b>`)}
       ${mystery}
     </div>
     <div class="next">Tomorrow's weather: ${weatherName(expedition.forecast)}${
@@ -4795,7 +4824,8 @@ function discover(id) {
   if (journal[id].seen) return;
   journal[id].seen = true;
   expedition.newFinds.push(id);
-  toast(`📓 New in your journal: ${entry.name}`, "discovery");
+  expedition.discoveryEarnings += entry.value;
+  toast(`📓 New in your journal: ${entry.name}${entry.value ? ` +$${entry.value}` : ""}`, "discovery");
   if (id === "glow") toast("Something is down there, glinting… out of reach for now.");
   checkGoal("discover", id);
   if (!journalEl.classList.contains("hidden")) renderJournal();
@@ -4827,10 +4857,12 @@ function takePhoto() {
     if (!journal[id].photo) {
       journal[id].photo = true;
       expedition.photos++;
-      toast(`📷 Photo added to your journal: ${entry.name}`, "discovery");
+      const bonus = photoValue(entry);
+      expedition.photoEarnings += bonus;
+      toast(`📷 Photo added to your journal: ${entry.name}${bonus ? ` +$${bonus}` : ""}`, "discovery");
       if (!journalEl.classList.contains("hidden")) renderJournal();
     } else {
-      toast(`📷 You already have a photo of ${entry.name}`);
+      toast(`📷 You already have a photo of ${entry.name} (no pay for repeats)`);
     }
     // A task can still need this photo (e.g. at sunset, or in a certain place)
     checkGoal("photo", id);
@@ -4851,7 +4883,9 @@ function renderJournal() {
             .map((e) => {
               const j = journal[e.id];
               return j.seen
-                ? `<div class="entry"><span>${e.name}</span><span>✓${j.photo ? " 📷" : ""}</span></div>`
+                ? `<div class="entry"><span>${e.name}</span><span>✓${j.photo ? " 📷" : ""} <span style="opacity:0.6">$${
+                    e.value + (j.photo && e.cat !== "Relics" ? photoValue(e) : 0)
+                  }</span></span></div>`
                 : `<div class="entry unknown"><span>???</span><span></span></div>`;
             })
             .join("")
@@ -4949,7 +4983,8 @@ function tryDive() {
   journal[near.relic].seen = true;
   journal[near.relic].photo = true;
   expedition.newFinds.push(near.relic);
-  toast(`🤿 You dive to the ${JOURNAL_BY_ID[near.site].name} and bring up: ${relic.name}!`, "discovery");
+  expedition.relicEarnings += relic.value;
+  toast(`🤿 You dive to the ${JOURNAL_BY_ID[near.site].name} and bring up: ${relic.name}! +$${relic.value}`, "discovery");
   if (near.relic === "logbook") toast("📖 The last entry mentions 'a light beneath the eastern cliffs' and 'the one who points'.");
   const fragments = ["fragment1", "fragment2", "fragment3"].filter((id) => journal[id].seen).length;
   if (near.relic.startsWith("fragment")) {
@@ -5355,7 +5390,14 @@ function render() {
   boat.headlight.target.getWorldPosition(tmpVec);
   waterUniforms.uBoatSpotDir.value.copy(tmpVec).sub(lightPos[4]).normalize();
 
-  scoreEl.textContent = `$${expedition.funds.toLocaleString()}`;
+  // Funds, plus what today's trip has earned so far (paid out when you dock)
+  const today =
+    expedition.discoveryEarnings + expedition.photoEarnings + expedition.relicEarnings +
+    (expedition.goalDone && expedition.goal ? expedition.goal.reward : 0);
+  scoreEl.textContent =
+    state.phase === "running" && today
+      ? `$${expedition.funds.toLocaleString()} (+$${today.toLocaleString()} today)`
+      : `$${expedition.funds.toLocaleString()}`;
   const fuel = Math.round((expedition.fuel / expedition.fuelMax) * 100);
   fuelFillEl.style.width = `${fuel}%`;
   fuelFillEl.classList.toggle("low", fuel <= 25 && fuel > 0);

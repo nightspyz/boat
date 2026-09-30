@@ -5,9 +5,9 @@ _Last updated: 2026-09-30_
 ## Concept
 A relaxing ocean exploration game that slowly turns into a mystery. You take a small boat out from
 a harbor cove each day, with a task and a hint (never a quest marker), and fill your **Ocean Journal**
-by spotting and photographing wildlife, places, boats, people, weather and relics. You earn money only
-by completing the day's task, and spend it at the boatyard on gear that changes *what* you can
-discover. The ocean itself is the challenge: fuel, daylight, fog and storms decide how far you dare to go.
+by spotting and photographing wildlife, places, boats, people, weather and relics. Every new discovery,
+first photo and relic pays; the day's task pays a bigger reward. You spend it at the boatyard on gear
+that changes *what* you can discover. The ocean itself is the challenge: fuel, daylight, fog and storms decide how far you dare to go.
 Under it all, three fragments of an unknown artifact hint that this coast is not what it seems.
 
 ### The three loops (from the game plan)
@@ -17,7 +17,8 @@ Under it all, three fragments of an unknown artifact hint that this coast is not
 
 ### Design rules
 - Give the player a reason to go somewhere; clues and hints, not markers.
-- Money only from tasks. Discoveries and photos fill the journal, never the wallet.
+- Money: you start with $0. New discoveries pay their value, a first photo pays half again, relics pay,
+  and the day's task pays its reward. Repeat photos pay nothing. Everything is paid out when you dock.
 - Upgrades change what you can discover, not just numbers ("I saw something I couldn't reach → upgrade → come back").
 - No enemies: the sea, weather, fuel and nightfall provide the tension.
 - Peaceful first, mysterious later.

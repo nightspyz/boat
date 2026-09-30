@@ -34,7 +34,7 @@ Following the game plan: Explore → Discover → Decide → Return → Upgrade 
 - [x] Realistic water: caustics, reflections, foam, see-through shallows, lapping waves
 - [x] Core loop: daily expeditions with hints, fuel and time, docking, summary, forecast
 - [x] Ocean Journal with visibility rules for spotting and photographing
-- [x] Money only from tasks; repeat photos refused; white rings on new photo subjects
+- [x] Money from discoveries, first photos, relics and tasks; repeat photos pay nothing; white rings on new photo subjects
 - [x] Boatyard with 8 upgrades that change what you can discover
 - [x] Sonar, diving, relics and the first artifact mystery
 - [x] Saved progress, Continue / New game
