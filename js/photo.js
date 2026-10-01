@@ -74,7 +74,7 @@ const photo = (() => {
   // The camera drone: flies from the boat with its own camera (V). Battery recharges aboard.
   const drone = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, battery: 180, warnedAt: -99, lowWarned: false };
   const DRONE_BATTERY = 180;
-  const DRONE_RANGE = 200; // metres from the boat, in any direction (height counts too)
+  const DRONE_RANGE = 100; // metres from the boat, in any direction (height counts too)
   const droneHud = document.getElementById("drone-hud");
 
   const maxZoom = () => (api.droneMode ? 4 : owned("camera") ? 10 : 4);

@@ -471,7 +471,7 @@ const UPGRADES = [
   { id: "rod", icon: "🎣", name: "Fishing rod", price: 300, desc: "Stop and cast (Q); strike when the float dips. Every catch sells at the harbor." },
   { id: "searchlight", icon: "🔦", name: "Searchlight", price: 450, desc: "A powerful beam (L) that points wherever you look. Light up the night." },
   { id: "fireworks", icon: "🎆", name: "Fireworks", price: 400, desc: "Launch fireworks from the boat at night (K): five kinds of shells." },
-  { id: "drone", icon: "🚁", name: "Camera drone", price: 1800, desc: "Fly a camera drone from the boat (V): photograph from above, up to 200 m from the boat." },
+  { id: "drone", icon: "🚁", name: "Camera drone", price: 1800, desc: "Fly a camera drone from the boat (V): photograph from above, up to 100 m from the boat." },
 ];
 const upgrades = new Set();
 const owned = (id) => upgrades.has(id);
@@ -835,7 +835,7 @@ function endExpedition(towed) {
 {
   let typed = "";
   window.addEventListener("keydown", (e) => {
-    if (e.key.length !== 1) return;
+    if (!e.key || e.key.length !== 1) return;
     typed = (typed + e.key.toLowerCase()).slice(-7);
     if (typed !== "doronii") return;
     typed = "";

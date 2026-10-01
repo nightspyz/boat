@@ -72,4 +72,6 @@ Following the game plan: Explore → Discover → Decide → Return → Upgrade 
 - [x] v3.5: cruise liner and container ship far offshore; shooting stars and a comet; beach camps with campfires at night; horse riders; fireworks fire forward ~100 m; the boat stops quickly when you let go of the throttle (dive/fish/cast allowed under 2.5 m/s)
 - [x] v3.6: drone range cut to 200 m from the boat (height counts), shown on the drone screen and turning red near the limit
 - [x] v3.7: cheat: typing "doronii" gives $100,000
+- [x] v3.8: (same as 3.7, with a safety check in the cheat's key handling)
+- [x] v3.9: drone range 100 m from the boat
 - [x] Fixes: stuck boat, water edges, zigzag waves (water drawn far-to-near; far ocean drawn before it), smoother cliff outline
