@@ -381,8 +381,8 @@ const photo = (() => {
     cardTimer = setTimeout(() => cardEl.classList.add("hidden"), 3500);
   }
 
-  // Full-size copies of the photos taken since the game was opened, for saving from the gallery. Kept in
-  // memory only (the save file keeps the small 420 px pictures), so older photos save at that size.
+  // Screen-resolution copies of the photos taken since the game was opened, for saving from the gallery.
+  // Kept in memory only (the save file keeps the small 420 px pictures), so older photos save at that size.
   const fullSize = new WeakMap();
   function keepFullSize(shot, sx, sy, sw, sh) {
     try {
@@ -464,10 +464,25 @@ const photo = (() => {
           c.height = Math.round((420 * r.height) / r.width);
           c.getContext("2d").drawImage(renderer.domElement, r.left * pr, r.top * pr, r.width * pr, r.height * pr, 0, 0, c.width, c.height);
           pendingShot.img = c.toDataURL("image/jpeg", 0.72);
-          keepFullSize(pendingShot, r.left * pr, r.top * pr, r.width * pr, r.height * pr);
         } catch (e) {
           pendingShot.img = null;
         }
+        // The copy to keep: the same shot rendered over the whole screen, at the screen's resolution
+        // (same zoom, a little wider to fill the screen's shape), then the normal view drawn back
+        const aspect = camera.aspect;
+        camera.aspect = W / H;
+        camera.updateProjectionMatrix();
+        renderer.setScissorTest(false);
+        renderer.setViewport(0, 0, W, H);
+        renderer.render(scene, camera);
+        keepFullSize(pendingShot, 0, 0, renderer.domElement.width, renderer.domElement.height);
+        camera.aspect = aspect;
+        camera.updateProjectionMatrix();
+        renderer.render(scene, wideCam);
+        renderer.setViewport(r.left, H - r.bottom, r.width, r.height);
+        renderer.setScissor(r.left, H - r.bottom, r.width, r.height);
+        renderer.setScissorTest(true);
+        renderer.render(scene, camera);
       }
       renderer.setScissorTest(false);
       renderer.setViewport(0, 0, W, H);
@@ -500,7 +515,7 @@ const photo = (() => {
         c.height = 280;
         c.getContext("2d").drawImage(renderer.domElement, ((W - cw) / 2) * pr, ((H - ch) / 2) * pr, cw * pr, ch * pr, 0, 0, 420, 280);
         pendingShot.img = c.toDataURL("image/jpeg", 0.72);
-        keepFullSize(pendingShot, ((W - cw) / 2) * pr, ((H - ch) / 2) * pr, cw * pr, ch * pr);
+        keepFullSize(pendingShot, 0, 0, renderer.domElement.width, renderer.domElement.height); // the whole screen, full resolution
       } catch (e) {
         pendingShot.img = null;
       }
