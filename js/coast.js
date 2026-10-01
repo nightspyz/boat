@@ -258,10 +258,16 @@ function carveRiver(x, z, y) {
 
 // Gullies and buttresses: the cliff line wanders in and out along the coast. Kept broad (≥ ~15 m)
 // so the 5 m terrain grid follows it smoothly.
-const cliffGully = (x) => (noise1(x * 0.03 + 11) - 0.5) * 16 + (noise1(x * 0.065 + 3) - 0.5) * 5;
+// (Gentle enough that the line never turns sharply: the 5 m terrain grid can't follow a tight bend.)
+const cliffGully = (x) => (noise1(x * 0.03 + 11) - 0.5) * 8 + (noise1(x * 0.065 + 3) - 0.5) * 2.5;
 // Distance inland from the waterline where the cliff rises (the foot of the face). Never right at the
 // waterline, so the boat and the surf never reach into the rock.
-const cliffLine = (x) => Math.max(cliffSetback(x) + 13 - cliffGully(x), 3);
+const cliffLine = (x) => {
+  const raw = cliffSetback(x) + 13 - cliffGully(x);
+  return (raw + 3 + Math.sqrt((raw - 3) ** 2 + 16)) / 2; // at least 3, with a rounded corner instead of a kink
+};
+// The land starts to rise this far behind the cliff line, well behind the rock face in front of it
+const CLIFF_RISE0 = 1.5;
 
 function landHeight(x, z) {
   const d = inland(x, z);
@@ -277,7 +283,7 @@ function landHeight(x, z) {
   const sb = cliffSetback(x);
   const cliffH = 32 + 26 * noise1(x * 0.01 + 3.1);
   // The land steps up within 4 m of the cliff line; the rock face itself is its own mesh (buildCliffWalls)
-  const rise = smooth(0, 4, d - cliffLine(x));
+  const rise = smooth(CLIFF_RISE0, CLIFF_RISE0 + 4, d - cliffLine(x));
   const step = 3.5 + 2 * noise1(x * 0.02 + 1.7);
   const beachBase = beachProfile(Math.min(d, Math.max(sb, 0))) + 0.3; // 0 where there's no beach
   const shelfD = Math.max(d - Math.max(sb, 0), 0);
@@ -404,7 +410,7 @@ function buildCliffWalls() {
       const nx = -dzdx / nl; // outward, toward the sea
       const nz = 1 / nl;
       const yBot = landHeight(x, zAt(x, line - back - 0.5)) - 1.4;
-      const yTop = landHeight(x, zAt(x, line + 4.5));
+      const yTop = landHeight(x, zAt(x, line + CLIFF_RISE0 + 4.5));
       const H = yTop - yBot;
       if (H > 5) col = { x, zb, nx, nz, yBot, yTop, H, line, cm, back };
     }
@@ -462,7 +468,7 @@ function buildCliffWalls() {
           let o;
           if (i === ROWS) {
             y = c.yTop - 0.6;
-            o = -(c.back + 4.5);
+            o = -(c.back + CLIFF_RISE0 + 4.5);
           } else {
             const v = i / (ROWS - 1);
             y = i === ROWS - 1 ? c.yTop - 0.25 : c.yBot + c.H * v;
@@ -668,7 +674,7 @@ function buildTurfLip() {
   for (const c of CLIFF_COLS) {
     if (!c.lip) continue;
     const base = pos.length / 3;
-    const zA = shoreZAt(c.x) - (c.line + 7);
+    const zA = shoreZAt(c.x) - (c.line + CLIFF_RISE0 + 7);
     const yA = landHeight(c.x, zA) + 0.07;
     const bx = c.lip.x + c.nx * 0.1;
     const bz = c.lip.z + c.nz * 0.1;

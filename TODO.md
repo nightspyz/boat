@@ -66,4 +66,6 @@ Following the game plan: Explore → Discover → Decide → Return → Upgrade 
 - [x] v2.9: cliff walls join up cleanly: no big buttresses sticking out, the wall is solid from every side, the turf ends at the rock lip and only shows from above
 - [x] v3.0: the sea arch is one seamless piece of rock; the Hidden Cove waterfall pours over the cliff lip all the way down to the beach
 - [x] v3.1: Esc settings menu (pauses the game): master/effects/ambience/music volume, boat speed, time-of-day speed, weather (forecast or fixed clear/cloudy/rain/storm/fog); saved in the browser
+- [x] v3.2: cliff line bends gently (no sharp corners) and the clifftop rises 1.5 m behind the rock face, so the land never pokes out through the cliff wall
+- [x] v3.3: keyboard controls on the title, briefing and pause screens shown as a card of keycaps, grouped (Sailing, Camera, Journal & map, Game)
 - [x] Fixes: stuck boat, water edges, zigzag waves (water drawn far-to-near; far ocean drawn before it), smoother cliff outline
