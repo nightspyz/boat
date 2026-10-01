@@ -313,6 +313,10 @@ function updateSonar() {
   if (c.site === "deepwreck" && c.dist < 45 && !journal.deepwreck.seen) {
     toast("📡 Sonar: something big on the bottom, 20 m down — a wreck!", "discovery");
     discover("deepwreck");
+  } else if (c.dist <= 15 && !journal[c.site].seen) {
+    // Right over any contact: the sonar picture is clear enough to say what it is
+    toast(`📡 Sonar: right below you — ${JOURNAL_BY_ID[c.site].name}!`, "discovery");
+    discover(c.site);
   }
 }
 

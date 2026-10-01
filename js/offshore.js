@@ -175,17 +175,17 @@ function addBuoy(x, z, top, base, light, kind, period, on, journalId) {
   SEA_OBSTACLES.push({ x, z, r: 1.3 });
 }
 // The channel out of the harbor: red to port and green to starboard as you come in
-for (const [dz, i] of [[55, 0], [125, 1]]) {
-  addBuoy(harbor.pierX - 30, harbor.pierZ1 + dz, 0xc8302a, 0xc8302a, 0xff3a2a, "can", 4, 0.5 + i * 0.2, "buoys");
-  addBuoy(harbor.pierX + 40, harbor.pierZ1 + dz, 0x2f9a4a, 0x2f9a4a, 0x40ff70, "cone", 4, 0.5 + i * 0.2, "buoys");
-}
-addBuoy(ARCH.x, ARCH.z + 90, 0xf2c230, 0xf2c230, 0xffd84a, "x", 5, 0.6, "buoys"); // special mark off the arch
-addBuoy(-1830, shoreZAt(-1830) + 260, 0x1b1b1b, 0xf2c230, 0xffffff, "cardinal", 10, 0.4, "buoys"); // keep clear of the Sisters
-addBuoy(ISLAND.seal.x + 70, ISLAND.seal.z + 40, 0x1b1b1b, 0xb3241e, 0xffffff, "danger", 5, 0.3, "buoys"); // isolated danger
+const HC = WORLD.offshore.harborChannel;
+HC.distances.forEach((dz, i) => {
+  addBuoy(harbor.pierX + HC.portX, harbor.pierZ1 + dz, 0xc8302a, 0xc8302a, 0xff3a2a, "can", 4, 0.5 + i * 0.2, "buoys");
+  addBuoy(harbor.pierX + HC.starboardX, harbor.pierZ1 + dz, 0x2f9a4a, 0x2f9a4a, 0x40ff70, "cone", 4, 0.5 + i * 0.2, "buoys");
+});
+// Other marks (data/world.js): at x and 'out' from the waterline, or at an exact x, z
+for (const b of WORLD.offshore.buoys) addBuoy(b.x, b.z ?? shoreZAt(b.x) + b.out, b.top, b.base, b.light, b.kind, b.period, b.on, "buoys");
 // The weather buoy: a wide yellow disc with a mast of instruments and solar panels
 const DATA_BUOY = (() => {
-  const x = -300;
-  const z = shoreZAt(-300) + 960;
+  const x = WORLD.offshore.weatherBuoy.x;
+  const z = shoreZAt(x) + WORLD.offshore.weatherBuoy.out;
   const g = new THREE.Group();
   const yellow = new THREE.MeshStandardMaterial({ color: 0xf2c230, roughness: 0.6 });
   const grey = new THREE.MeshStandardMaterial({ color: 0xbfc4c8, roughness: 0.4, metalness: 0.5 });
@@ -229,8 +229,8 @@ function updateBuoys(dt, t, env) {
 
 // ===== Offshore oil rig: legs in the sea, decks, a derrick, a crane, a helipad and a gas flare =====
 const RIG = (() => {
-  const x = 1900;
-  const z = shoreZAt(1900) + 1130;
+  const x = WORLD.offshore.oilRig.x;
+  const z = shoreZAt(x) + WORLD.offshore.oilRig.out;
   const g = new THREE.Group();
   const hazeMat = (color, extra = {}) => applyHaze(new THREE.MeshStandardMaterial({ color, roughness: 0.7, ...extra }));
   const legMat = hazeMat(0xd9b23a);
@@ -357,21 +357,23 @@ function addTurbine(x, z, ground, offshore) {
 }
 const WIND_FARM = { x: -2050, z: 0 };
 {
+  const F = WORLD.offshore.windFarm;
   let sz = 0;
-  for (let row = 0; row < 3; row++)
-    for (let col = 0; col < 4; col++) {
-      const x = -2350 + col * 200 + (row % 2) * 100;
-      const z = shoreZAt(x) + 1010 + row * 105;
+  for (let row = 0; row < F.rows; row++)
+    for (let col = 0; col < F.cols; col++) {
+      const x = F.x0 + col * F.colSpacing + (row % 2) * F.stagger;
+      const z = shoreZAt(x) + F.out + row * F.rowSpacing;
       addTurbine(x, z, 0, true);
       sz += z;
     }
-  WIND_FARM.z = sz / 12;
+  WIND_FARM.x = F.x0 + ((F.cols - 1) * F.colSpacing + F.stagger) / 2;
+  WIND_FARM.z = sz / (F.rows * F.cols);
 }
 const HILL_TURBINES = [];
-for (const x of [1480, 1640, 1800, 1960, 2200, 2360, 2520]) {
-  const z = shoreZAt(x) - 330;
+for (const x of WORLD.offshore.hillTurbines.xs) {
+  const z = shoreZAt(x) - WORLD.offshore.hillTurbines.inland;
   const ground = landHeight(x, z);
-  if (ground < 8) continue;
+  if (ground < WORLD.offshore.hillTurbines.minGround) continue;
   addTurbine(x, z, ground, false);
   HILL_TURBINES.push({ x, z, y: ground });
 }

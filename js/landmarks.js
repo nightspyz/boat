@@ -48,8 +48,8 @@ function buildArchSpan() {
 scene.add(buildArchSpan());
 
 // ===== Hidden Cove: a waterfall pouring down the cliff onto the beach =====
-const HIDDEN_COVE = { x: -1000 };
-HIDDEN_COVE.z = shoreZAt(HIDDEN_COVE.x) - 15; // on the beach
+const HIDDEN_COVE = { x: WORLD.landmarks.hiddenCove.x };
+HIDDEN_COVE.z = shoreZAt(HIDDEN_COVE.x) - WORLD.landmarks.hiddenCove.inland; // on the beach
 // Find where the cliff behind the beach starts to rise, and where its top is
 const WATERFALL = (() => {
   const x = HIDDEN_COVE.x - 6;
@@ -181,7 +181,7 @@ const GROTTOES = GROTTO_XS.map((x, k) => {
 });
 
 // ===== The coast road along the eastern cliffs, and its arch bridge over the creek =====
-const ROAD = { x0: 1640, x1: 2620, step: 4 };
+const ROAD = { ...WORLD.landmarks.coastRoad };
 const roadD = (x) => 80 + 26 * Math.exp(-(((x - CREEK_X) / 150) ** 2)); // keeps back from the cliff edge
 const BRIDGE = { x0: CREEK_X - 62, x1: CREEK_X + 62 };
 // The road's centre line: points along it, smoothed, level across the bridge

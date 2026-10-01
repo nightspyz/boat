@@ -172,8 +172,8 @@ function buildRiverside() {
 scene.add(buildRiverWater(), buildRiverside());
 
 // ===== Clifftop town =====
-const TOWN = { x0: -1580, x1: -1180 };
-const TOWN_CENTER = { x: -1380, z: shoreZAt(-1380) - 120 };
+const TOWN = { x0: WORLD.inland.town.x0, x1: WORLD.inland.town.x1 };
+const TOWN_CENTER = { x: WORLD.inland.town.center.x, z: shoreZAt(WORLD.inland.town.center.x) - WORLD.inland.town.center.inland };
 
 function buildTown() {
   const group = new THREE.Group();
@@ -307,7 +307,7 @@ const surfers = [];
 function buildBeachLife() {
   const group = new THREE.Group();
   // Sunbathers on towels and loungers, most under umbrellas
-  for (let k = 0; k < 16; k++) {
+  for (let k = 0; k < WORLD.beach.sunbathers; k++) {
     const s = coveSpot(14, 42);
     const g = new THREE.Group();
     const onLounger = Math.random() < 0.4;
@@ -338,7 +338,7 @@ function buildBeachLife() {
     sunbathers.push(g);
   }
   // Swimmers: heads and shoulders above the water, drifting about
-  for (let k = 0; k < 10; k++) {
+  for (let k = 0; k < WORLD.beach.swimmers; k++) {
     const s = coveSpot(-38, -6);
     const g = new THREE.Group();
     const skin = pick(swimSkinMats);

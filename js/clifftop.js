@@ -24,7 +24,7 @@ lakeWater.position.set(LAKE.x, LAKE.level, LAKE.z);
 scene.add(lakeWater);
 {
   const padMat = meadowMat(0x4f7a32, { side: THREE.DoubleSide });
-  for (let k = 0; k < 14; k++) {
+  for (let k = 0; k < WORLD.life.lake.lilyPads; k++) {
     const a = rand(0, Math.PI * 2);
     const r = rand(LAKE.r * 0.55, LAKE.r * 0.95);
     const pad = addTo(scene, new THREE.CircleGeometry(rand(0.35, 0.6), 10, 0.3, Math.PI * 1.85), padMat, LAKE.x + Math.cos(a) * r, LAKE.level + 0.03, LAKE.z + Math.sin(a) * r, -Math.PI / 2, 0, rand(0, 6));
@@ -42,7 +42,7 @@ function buildDuck(drake) {
   scene.add(g);
   return g;
 }
-const ducks = [0, 1, 2, 3, 4].map((i) => ({ g: buildDuck(i % 2 === 0), r: rand(3, LAKE.r * 0.8), a: rand(0, 6.3), sp: rand(0.08, 0.16) * (i % 3 ? 1 : -1), ph: rand(0, 9) }));
+const ducks = Array.from({ length: WORLD.life.lake.ducks }, (_, i) => i).map((i) => ({ g: buildDuck(i % 2 === 0), r: rand(3, LAKE.r * 0.8), a: rand(0, 6.3), sp: rand(0.08, 0.16) * (i % 3 ? 1 : -1), ph: rand(0, 9) }));
 
 // ===== Trees, flowers and paths round the lake =====
 {
@@ -62,8 +62,8 @@ const ducks = [0, 1, 2, 3, 4].map((i) => ({ g: buildDuck(i % 2 === 0), r: rand(3
   }
 }
 // Dirt paths: a loop round the lake, and spurs to the cliff edge, the party and the bike track
-const PARTY = { x: -545, z: inlandZ(-545, 48) };
-const TRACK = { x: -800, z: inlandZ(-800, 64), rx: 24, rz: 13 };
+const PARTY = { x: WORLD.clifftop.party.x, z: inlandZ(WORLD.clifftop.party.x, WORLD.clifftop.party.inland) };
+const TRACK = (({ x, inland, rx, rz }) => ({ x, z: inlandZ(x, inland), rx, rz }))(WORLD.clifftop.bikeTrack);
 const pathMat = applyHaze(new THREE.MeshStandardMaterial({ color: 0x9c8566, roughness: 1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
 function buildPath(points, width) {
   const pos = [];
@@ -166,9 +166,9 @@ function buildCat(color) {
   scene.add(g);
   return { g };
 }
-const dogs = [0xc8a070, 0x2a2420].map((c, i) => ({ ...buildDog(c), u: i * 0.5, sp: i ? 0.055 : -0.07, ph: i * 2 }));
-const cats = [0xe08a3c, 0x55504a].map((c, i) => ({ ...buildCat(c), a: i * 3, wait: 0, home: [LAKE.x + (i ? 18 : -14), LAKE.z + (i ? -16 : 20)] }));
-const meadowGoats = [0, 1, 2].map((i) => {
+const dogs = WORLD.life.dogs.colors.map((c, i) => ({ ...buildDog(c), u: i * 0.5, sp: i ? 0.055 : -0.07, ph: i * 2 }));
+const cats = WORLD.life.cats.map((ct, i) => ({ ...buildCat(ct.color), a: i * 3, wait: 0, home: [LAKE.x + ct.home[0], LAKE.z + ct.home[1]] }));
+const meadowGoats = Array.from({ length: WORLD.life.meadowGoats }, (_, i) => i).map((i) => {
   const gt = buildGoat(i === 1 ? goatDarkMat : goatMat);
   scene.add(gt.g);
   const x = TRACK.x + rand(-10, 10);
@@ -384,7 +384,7 @@ function buildCyclist(color) {
   scene.add(g);
   return { g, legs };
 }
-const cyclists = [0xe63946, 0x118ab2].map((c, i) => ({ ...buildCyclist(c), s: i * 400, dir: i ? -1 : 1 }));
+const cyclists = WORLD.life.cyclists.colors.map((c, i) => ({ ...buildCyclist(c), s: i * 400, dir: i ? -1 : 1 }));
 let cyclistsOut = false;
 function updateCyclists(dt, t, env) {
   cyclistsOut = env.lightLevel > 0.35 && wx.rain < 0.4;
@@ -428,16 +428,17 @@ const iceberg = (() => {
   const mesh = new THREE.Mesh(geo, applyHaze(new THREE.MeshStandardMaterial({ color: 0xeaf6ff, emissive: 0x2a5a78, emissiveIntensity: 0.25, roughness: 0.35, flatShading: true })));
   mesh.scale.set(16, 10, 12);
   scene.add(mesh);
-  const obstacle = { x: -1300, z: 0, r: 17 };
-  obstacle.z = shoreZAt(obstacle.x) + 1080;
+  const IB = WORLD.life.iceberg;
+  const obstacle = { x: IB.x, z: 0, r: IB.r };
+  obstacle.z = shoreZAt(obstacle.x) + IB.out;
   SEA_OBSTACLES.push(obstacle);
   return { mesh, o: obstacle };
 })();
 function updateIceberg(dt, t) {
   const o = iceberg.o;
-  o.x += 0.35 * dt;
+  o.x += WORLD.life.iceberg.speed * dt;
   if (o.x > 2400) o.x = -2400;
-  o.z = shoreZAt(o.x) + 1080 + Math.sin(o.x * 0.002) * 60;
+  o.z = shoreZAt(o.x) + WORLD.life.iceberg.out + Math.sin(o.x * 0.002) * 60;
   iceberg.mesh.position.set(o.x, waveHeight(o.x, o.z, t) * 0.2 - 1 + Math.sin(t * 0.3) * 0.3, o.z);
   iceberg.mesh.rotation.y = t * 0.004;
 }

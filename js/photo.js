@@ -381,26 +381,55 @@ const photo = (() => {
     cardTimer = setTimeout(() => cardEl.classList.add("hidden"), 3500);
   }
 
+  // Full-size copies of the photos taken since the game was opened, for saving from the gallery. Kept in
+  // memory only (the save file keeps the small 420 px pictures), so older photos save at that size.
+  const fullSize = new WeakMap();
+  function keepFullSize(shot, sx, sy, sw, sh) {
+    try {
+      const c = document.createElement("canvas");
+      c.width = Math.round(sw);
+      c.height = Math.round(sh);
+      c.getContext("2d").drawImage(renderer.domElement, sx, sy, sw, sh, 0, 0, c.width, c.height);
+      fullSize.set(shot, c.toDataURL("image/jpeg", 0.93));
+    } catch (e) {
+      // (no full-size copy: the small one is saved instead)
+    }
+  }
+  function savePhoto(p) {
+    const src = fullSize.get(p) || p.img;
+    if (!src) return toast("📷 This photo has no picture to save.");
+    const safe = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const a = document.createElement("a");
+    a.href = src;
+    a.download = `coastline-day${p.day}-${safe(p.time)}-${safe(p.subject)}.jpg`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    toast(`💾 Saved “${p.subject}”${fullSize.has(p) ? "" : " (small size: taken in an earlier session)"}`);
+  }
+
   function toggleGallery(show = galleryEl.classList.contains("hidden")) {
     if (show && api.active) exit();
     galleryEl.classList.toggle("hidden", !show);
     if (!show) return;
     galleryEl.innerHTML =
-      `<h2>📷 Photo gallery <span>${photos.length} photos · Tab or tap to close · J for the journal</span></h2>` +
+      `<h2>📷 Photo gallery <span>${photos.length} photos · click a photo to save it · Tab or click outside to close · J for the journal</span></h2>` +
       (photos.length
         ? `<div class="g-grid">${photos
-            .slice()
+            .map((p, i) => [p, i])
             .reverse()
             .map(
-              (p) =>
-                `<figure>${p.img ? `<img src="${p.img}" alt="">` : "<div class='g-none'></div>"}<figcaption>${p.subject}<br><span>${"★".repeat(p.stars || 0)} ${p.quality} · Day ${p.day} ${p.time}</span></figcaption></figure>`
+              ([p, i]) =>
+                `<figure data-photo="${i}" title="Click to save this photo">${p.img ? `<img src="${p.img}" alt="">` : "<div class='g-none'></div>"}<figcaption>${p.subject}<br><span>${"★".repeat(p.stars || 0)} ${p.quality} · Day ${p.day} ${p.time}</span></figcaption></figure>`
             )
             .join("")}</div>`
         : `<p>No photos yet. Press F to raise your camera.</p>`);
   }
   galleryEl.addEventListener("pointerdown", (e) => {
     e.stopPropagation();
-    toggleGallery(false);
+    const fig = e.target && e.target.closest && e.target.closest("[data-photo]");
+    if (fig) savePhoto(photos[+fig.dataset.photo]);
+    else toggleGallery(false);
   });
 
   // Draw the deck view, then the zoomed view inside the camera's screen
@@ -435,6 +464,7 @@ const photo = (() => {
           c.height = Math.round((420 * r.height) / r.width);
           c.getContext("2d").drawImage(renderer.domElement, r.left * pr, r.top * pr, r.width * pr, r.height * pr, 0, 0, c.width, c.height);
           pendingShot.img = c.toDataURL("image/jpeg", 0.72);
+          keepFullSize(pendingShot, r.left * pr, r.top * pr, r.width * pr, r.height * pr);
         } catch (e) {
           pendingShot.img = null;
         }
@@ -470,6 +500,7 @@ const photo = (() => {
         c.height = 280;
         c.getContext("2d").drawImage(renderer.domElement, ((W - cw) / 2) * pr, ((H - ch) / 2) * pr, cw * pr, ch * pr, 0, 0, 420, 280);
         pendingShot.img = c.toDataURL("image/jpeg", 0.72);
+        keepFullSize(pendingShot, ((W - cw) / 2) * pr, ((H - ch) / 2) * pr, cw * pr, ch * pr);
       } catch (e) {
         pendingShot.img = null;
       }

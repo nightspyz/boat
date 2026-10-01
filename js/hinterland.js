@@ -16,15 +16,15 @@ const zAtD = (x, d) => shoreZAt(x) - d;
 // ===== Roads =====
 // The west coast road keeps about 12 m back from the cliff edge, then drops to the harbor cove
 function westRoadD(x) {
-  const edge = cliffLine(x) + CLIFF_RISE0 + 11;
-  return lerp(95, edge, smooth(0.3, 0.7, cliffAmount(x)));
+  const edge = cliffLine(x) + CLIFF_RISE0 + WORLD.inland.westRoad.edgeGap;
+  return lerp(WORLD.inland.westRoad.inland, edge, smooth(0.3, 0.7, cliffAmount(x)));
 }
 const roadAsphalt = applyHaze(new THREE.MeshStandardMaterial({ color: 0x3b3d40, roughness: 0.92, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
 const roadPaint = applyHaze(new THREE.MeshStandardMaterial({ color: 0xe8e2c8, roughness: 0.7, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
 // Roads: two lanes (7.4 m), level from side to side, resting on the ground as drawn (terrainY) and never
 // sinking into it, smoothed along their length; sides drop to the ground, so on a slope it reads as a
 // road cut into the hillside. Double yellow centre line, white edge lines.
-const ROAD_W = 7.4;
+const ROAD_W = WORLD.inland.roadWidth;
 function settleRoad(pts) {
   // Height of each point: the highest ground under its width, then smoothed (but never below that)
   const raw = pts.map((p, i) => {
@@ -75,37 +75,25 @@ function buildRoadRibbon(pts) {
 }
 const pt = (x, z) => ({ x, z, y: landHeight(x, z) });
 const WEST_ROAD = [];
-for (let x = -2560; x <= -300; x += 2) WEST_ROAD.push(pt(x, zAtD(x, westRoadD(x))));
+for (let x = WORLD.inland.westRoad.x0; x <= WORLD.inland.westRoad.x1; x += 2) WEST_ROAD.push(pt(x, zAtD(x, westRoadD(x))));
 // Branch roads: from the coast road up to the hill villages (gently winding)
-const VILLAGES = [
-  { x: -2150, d: 560 },
-  { x: -1080, d: 640 },
-  { x: -420, d: 560 },
-  { x: 1650, d: 600 },
-].map((v) => ({ ...v, z: zAtD(v.x, v.d) }));
+const VILLAGES = WORLD.inland.villages.map((v) => ({ name: v.name, x: v.x, d: v.inland, z: zAtD(v.x, v.inland) }));
 function branchRoad(x0, z0, x1, z1) {
   const pts = [];
   const n = Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 2);
   for (let i = 0; i <= n; i++) {
     const u = i / n;
-    const wig = Math.sin(u * Math.PI * 3) * 22 * Math.sin(Math.PI * u);
+    const wig = Math.sin(u * Math.PI * 3) * WORLD.inland.laneWiggle * Math.sin(Math.PI * u);
     pts.push(pt(lerp(x0, x1, u) + wig, lerp(z0, z1, u)));
   }
   return pts;
 }
 const roadAtX = (x) => WEST_ROAD.reduce((best, p) => (Math.abs(p.x - x) < Math.abs(best.x - x) ? p : best));
-const BRANCHES = [
-  (() => {
-    const s = roadAtX(-2100);
-    return branchRoad(s.x, s.z, VILLAGES[0].x, VILLAGES[0].z + 30);
-  })(),
-  branchRoad(-1250, zAtD(-1250, 300), VILLAGES[1].x, VILLAGES[1].z + 30), // from the back of the town
-  (() => {
-    const s = roadAtX(-380);
-    return branchRoad(s.x, s.z, VILLAGES[2].x, VILLAGES[2].z + 30);
-  })(),
-  branchRoad(1700, zAtD(1700, 82), VILLAGES[3].x, VILLAGES[3].z + 30), // from the eastern coast road
-];
+// Each lane starts on the west coast road (roadX) or at a given spot (x, inland), and ends at its village
+const BRANCHES = WORLD.inland.lanes.map((l, i) => {
+  const s = l.roadX !== undefined ? roadAtX(l.roadX) : { x: l.x, z: zAtD(l.x, l.inland) };
+  return branchRoad(s.x, s.z, VILLAGES[i].x, VILLAGES[i].z + 30);
+});
 buildRoadRibbon(WEST_ROAD);
 for (const b of BRANCHES) buildRoadRibbon(b);
 // A white guardrail on posts along the sea side of the coast road
@@ -158,8 +146,9 @@ const streetLamps = (() => {
       spots.push({ x: p.x - p.nx * off, z: p.z - p.nz * off, y: p.y, nx: p.nx, nz: p.nz });
     }
   };
-  along(WEST_ROAD, 18, 9); // every ~36 m, between the power poles
-  for (const b of BRANCHES) along(b, 18, Math.max(0, b.length - 80)); // the last ~160 m into each village
+  const L = WORLD.inland.streetLamps;
+  along(WEST_ROAD, L.every, L.first); // every ~36 m, between the power poles
+  for (const b of BRANCHES) along(b, L.every, Math.max(0, b.length - L.villageStretch)); // the last ~160 m into each village
   const n = spots.length;
   const steel = hzMat(0x4a4f55, { metalness: 0.4 });
   const posts = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.07, 0.1, 6, 6).translate(0, 3, 0), steel, n);
@@ -289,10 +278,11 @@ function updateRoadCars(dt, env) {
 const POLES = [];
 {
   const poles = [];
-  for (let i = 5; i < WEST_ROAD.length; i += 22) {
+  const PP = WORLD.inland.powerPoles;
+  for (let i = PP.first; i < WEST_ROAD.length; i += PP.every) {
     const p = WEST_ROAD[i];
-    const x = p.x - p.nx * (ROAD_W / 2 + 2.5); // on the landward side
-    const z = p.z - p.nz * (ROAD_W / 2 + 2.5);
+    const x = p.x - p.nx * (ROAD_W / 2 + PP.setback); // on the landward side
+    const z = p.z - p.nz * (ROAD_W / 2 + PP.setback);
     poles.push({ x, z, y: landHeight(x, z), nx: p.nx, nz: p.nz });
   }
   const poleMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.13, 0.17, 9, 6).translate(0, 4.5, 0), hzMat(0x5a4632), poles.length);
@@ -377,10 +367,11 @@ const POLES = [];
 // ===== Radio masts on the hilltops, with red warning lights =====
 const masts = (() => {
   const out = [];
-  for (const [x0, x1] of [[-2500, -1700], [-1000, -200], [700, 1500]]) {
+  const [d0, d1] = WORLD.inland.radioMastInland;
+  for (const { x0, x1 } of WORLD.inland.radioMasts) {
     let best = null;
     for (let x = x0; x <= x1; x += 40)
-      for (let d = 420; d <= 860; d += 40) {
+      for (let d = d0; d <= d1; d += 40) {
         const z = zAtD(x, d);
         const y = landHeight(x, z);
         if (!best || y > best.y) best = { x, z, y };
@@ -425,7 +416,7 @@ const masts = (() => {
 })();
 
 // ===== The pleasure funPier below the clifftop town =====
-const PIER = { x: -1380, len: 190, w: 12, deckY: 7 };
+const PIER = { ...WORLD.inland.funPier };
 PIER.z0 = shoreZAt(PIER.x) - 1;
 PIER.z1 = PIER.z0 + PIER.len;
 const funPier = (() => {

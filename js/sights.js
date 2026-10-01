@@ -320,11 +320,11 @@ const trawler = (() => {
     gulls.push({ g: bg, L, R, a: rand(0, 6.3), r: rand(5, 11), alt: rand(5, 10), sp: rand(0.5, 0.9) * (i % 2 ? 1 : -1), ph: rand(0, 9) });
   }
   scene.add(g);
-  return { g, lamp, gulls, route: { kind: "loop", cx: -150, cz: -480, rx: 420, rz: 110 }, s: rand(0, 2000), x: 0, z: 0, yaw: 0 };
+  return { g, lamp, gulls, route: { ...WORLD.life.trawler.route }, s: rand(0, 2000), x: 0, z: 0, yaw: 0 };
 })();
 function updateTrawler(dt, t, env) {
   const tr = trawler;
-  tr.s += 2.2 * dt;
+  tr.s += WORLD.life.trawler.speed * dt;
   const p = routePoint(tr.route, tr.s);
   tr.x = p.x;
   tr.z = p.z;
@@ -382,9 +382,10 @@ function updateBalloon(dt, t, env) {
   const show = h > 6.3 && h < 11.5 && env.lightLevel > 0.3 && wx.rain < 0.2 && wx.fog < 0.3 && wx.storm < 0.1;
   balloon.g.visible = show;
   if (!show) return;
-  const x = -700 + 520 * Math.sin(t * 0.004);
-  const z = shoreZAt(x) - 120 + 70 * Math.cos(t * 0.006);
-  const y = Math.max(landHeight(x, z), 0) + 170 + 25 * Math.sin(t * 0.02);
+  const B = WORLD.life.balloon;
+  const x = B.x + B.swingX * Math.sin(t * 0.004);
+  const z = shoreZAt(x) - B.inland + B.swingZ * Math.cos(t * 0.006);
+  const y = Math.max(landHeight(x, z), 0) + B.alt + 25 * Math.sin(t * 0.02);
   balloon.g.position.set(x, y, z);
   balloon.g.rotation.y = t * 0.01;
   // A burst from the burner now and then
@@ -395,8 +396,8 @@ function updateBalloon(dt, t, env) {
 
 // ===== A small coaster stranded on a sandy beach, rusting =====
 const BEACH_WRECK = (() => {
-  const x = 960; // the sandy beach east of the river delta
-  const z = shoreZAt(x) - 7;
+  const x = WORLD.beach.beachWreck.x; // the sandy beach east of the river delta
+  const z = shoreZAt(x) - WORLD.beach.beachWreck.inland;
   const g = new THREE.Group();
   g.rotation.order = "YXZ";
   const rust = applyHaze(new THREE.MeshStandardMaterial({ color: 0x7a3f22, roughness: 0.95 }));
@@ -479,7 +480,7 @@ function updateRainbow() {
 }
 
 // ===== Glowing plankton: on dark, calm nights in the bay east of the harbor, the wake lights up blue =====
-const BLOOM = { x: 520, z: shoreZAt(520) + 230, r: 380 };
+const BLOOM = (({ x, out, r }) => ({ x, z: shoreZAt(x) + out, r }))(WORLD.offshore.glowBloom);
 const GLOW_N = 900;
 const glowPos = new Float32Array(GLOW_N * 3).fill(-1000);
 const glowCol = new Float32Array(GLOW_N * 3);

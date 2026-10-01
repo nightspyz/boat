@@ -766,6 +766,23 @@ body.photo-mode #touch-buttons {
 }
 .g-grid figure {
   margin: 0;
+  cursor: pointer;
+  position: relative;
+}
+.g-grid figure:hover img {
+  outline: 2px solid #fff;
+  outline-offset: -2px;
+}
+.g-grid figure:hover::after {
+  content: "💾 Save";
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 5px;
 }
 .g-grid img,
 .g-none {

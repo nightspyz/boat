@@ -91,15 +91,15 @@ function spotAtDepth(x, depth) {
   }
   return SHORE_Z + 500;
 }
-const WRECK = { x: -1500 };
-WRECK.z = spotAtDepth(WRECK.x, 9);
+const WRECK = { x: WORLD.places.wreck.x };
+WRECK.z = spotAtDepth(WRECK.x, WORLD.places.wreck.depth);
 WRECK.y = seaBed(WRECK.x, WRECK.z);
-const GLOW = { x: 1550 };
-GLOW.z = spotAtDepth(GLOW.x, 7);
+const GLOW = { x: WORLD.places.strangeLight.x };
+GLOW.z = spotAtDepth(GLOW.x, WORLD.places.strangeLight.depth);
 GLOW.y = seaBed(GLOW.x, GLOW.z) + 0.8;
 // Far out below the western cliffs, too deep to see from the surface: only sonar finds it
-const DEEP_WRECK = { x: -2100 };
-DEEP_WRECK.z = spotAtDepth(DEEP_WRECK.x, 18);
+const DEEP_WRECK = { x: WORLD.places.deepWreck.x };
+DEEP_WRECK.z = spotAtDepth(DEEP_WRECK.x, WORLD.places.deepWreck.depth);
 DEEP_WRECK.y = seaBed(DEEP_WRECK.x, DEEP_WRECK.z);
 
 function buildWreck() {
@@ -378,15 +378,15 @@ function buildIslands() {
   // Palm Islet: palms, bushes, and turtles in the lagoon around it
   const palm = ISLAND.palm;
   scene.add(buildIslandTerrain(palm, false));
-  for (let k = 0; k < 9; k++) {
+  for (let k = 0; k < WORLD.life.islands.palms; k++) {
     const p = randomOnIsland(palm, 5, palm.R * 0.7);
     scene.add(buildPalm(p.x, p.y, p.z, rand(6, 10)));
   }
-  for (let k = 0; k < 10; k++) {
+  for (let k = 0; k < WORLD.life.islands.palmBushes; k++) {
     const p = randomOnIsland(palm, 8, palm.R);
     scene.add(buildBush(p.x, p.y, p.z));
   }
-  for (let k = 0; k < 2; k++) {
+  for (let k = 0; k < WORLD.life.islands.turtles; k++) {
     const t = buildTurtle();
     scene.add(t.g);
     turtles.push({ ...t, angle: k * Math.PI, radius: palm.R + 26 + k * 10, speed: 0.03 + k * 0.01, phase: k * 2 });
@@ -395,7 +395,7 @@ function buildIslands() {
   // Seal Rock: bare rock with a colony of seals lounging on it
   const sealRock = ISLAND.seal;
   scene.add(buildIslandTerrain(sealRock, true));
-  for (let k = 0; k < 6; k++) {
+  for (let k = 0; k < WORLD.life.islands.seals; k++) {
     const p = randomOnIsland(sealRock, 1.5, 10);
     const s = buildSeal();
     s.g.position.set(p.x, p.y, p.z);
@@ -407,17 +407,17 @@ function buildIslands() {
   // Goat Island: pines, goats, and old ruins on the hilltop with a statue
   const goat = ISLAND.goat;
   scene.add(buildIslandTerrain(goat, false));
-  for (let k = 0; k < 14; k++) {
+  for (let k = 0; k < WORLD.life.islands.pines; k++) {
     const p = randomOnIsland(goat, 10, goat.R * 0.75);
     const top = islandSummit(goat);
     if (Math.hypot(p.x - top.x, p.z - top.z) < 16) continue; // keep the hilltop clear for the ruins
     scene.add(buildPine(p.x, p.y, p.z, rand(3.5, 6)));
   }
-  for (let k = 0; k < 16; k++) {
+  for (let k = 0; k < WORLD.life.islands.goatBushes; k++) {
     const p = randomOnIsland(goat, 6, goat.R);
     scene.add(buildBush(p.x, p.y, p.z));
   }
-  for (let k = 0; k < 5; k++) {
+  for (let k = 0; k < WORLD.life.islands.goats; k++) {
     const gt = buildGoat(k % 3 === 2 ? goatDarkMat : goatMat);
     const p = randomOnIsland(goat, 12, goat.R * 0.8);
     gt.g.position.set(p.x, p.y, p.z);
@@ -513,10 +513,11 @@ function spotAt(x, depth) {
   const z = spotAtDepth(x, depth);
   return { x, z, y: seaBed(x, z) };
 }
-const TEMPLE = spotAt(-640, 6);
-const COLOSSUS = spotAt(-575, 7);
-const SAILBOAT = spotAt(LH_X + 330, 5);
-const FREIGHTER = { x: -1250, z: -640, y: seaBed(-1250, -640) };
+const placeAt = (p) => spotAt(p.x, p.depth); // world file entry → spot on the sea floor
+const TEMPLE = placeAt(WORLD.places.sunkenTemple);
+const COLOSSUS = placeAt(WORLD.places.colossus);
+const SAILBOAT = placeAt(WORLD.places.sailboatWreck);
+const FREIGHTER = { x: WORLD.places.freighter.x, z: WORLD.places.freighter.z, y: seaBed(WORLD.places.freighter.x, WORLD.places.freighter.z) };
 
 const sunkenStoneMat = applyUnderwater(new THREE.MeshStandardMaterial({ color: 0xd8d0bc, roughness: 0.9 }));
 const mossStoneMat = applyUnderwater(new THREE.MeshStandardMaterial({ color: 0x9aa68a, roughness: 0.95 }));

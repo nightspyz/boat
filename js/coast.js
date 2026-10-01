@@ -87,6 +87,10 @@ const PEBBLE_GLSL = /* glsl */ `
 `;
 
 // ===== Fields: a patchwork of crops with hedgerows (farmland only, see grass.js), and the wind over grass =====
+// Grass, field and flower settings from the world file, written into the shader as numbers
+const GW = WORLD.grass;
+const gf = (v) => Number(v).toFixed(4);
+const gv3 = (c) => `vec3(${c.map(gf).join(", ")})`;
 const FIELD_GLSL = /* glsl */ `
   float fhash(vec2 c) { return hash3(vec3(c, 17.0)); }
   // A warped grid of parcels, offset row by row like real field systems. kind: 0 wheat, 1 straw,
@@ -94,34 +98,34 @@ const FIELD_GLSL = /* glsl */ `
   vec3 fieldColor(vec2 p, out float kind, out float hedge) {
     vec2 w = p + vec2(noise3(vec3(p * 0.012, 1.0)), noise3(vec3(p * 0.012, 7.0))) * 44.0 - 22.0;
     vec2 q = mat2(0.94, -0.34, 0.34, 0.94) * w;
-    vec2 size = vec2(96.0, 68.0);
+    vec2 size = vec2(${gf(GW.fields.size[0])}, ${gf(GW.fields.size[1])});
     float row = floor(q.y / size.y);
     q.x += fhash(vec2(row, 3.0)) * size.x;
     vec2 cell = floor(q / size);
     vec2 f = fract(q / size) * size;
     float edge = min(min(f.x, size.x - f.x), min(f.y, size.y - f.y));
-    hedge = 1.0 - smoothstep(1.3, 2.6, edge);
+    hedge = 1.0 - smoothstep(${gf(GW.fields.hedgeWidth[0])}, ${gf(GW.fields.hedgeWidth[1])}, edge);
     kind = floor(fhash(cell) * 6.0);
-    vec3 c = kind < 1.0 ? vec3(0.80, 0.65, 0.29)
-           : kind < 2.0 ? vec3(0.86, 0.77, 0.47)
-           : kind < 3.0 ? vec3(0.28, 0.48, 0.11)
-           : kind < 4.0 ? vec3(0.16, 0.34, 0.07)
-           : kind < 5.0 ? vec3(0.50, 0.37, 0.25)
-           : vec3(0.50, 0.60, 0.22);
+    vec3 c = kind < 1.0 ? ${gv3(GW.fields.colors.wheat)}
+           : kind < 2.0 ? ${gv3(GW.fields.colors.straw)}
+           : kind < 3.0 ? ${gv3(GW.fields.colors.freshGrass)}
+           : kind < 4.0 ? ${gv3(GW.fields.colors.deepGreen)}
+           : kind < 5.0 ? ${gv3(GW.fields.colors.ploughed)}
+           : ${gv3(GW.fields.colors.hay)};
     // Tractor lines along each field
     float sd = fhash(cell + 9.0) > 0.5 ? f.x : f.y;
     c *= 1.0 + (kind >= 5.0 ? 0.06 : 0.03) * sin(sd * 1.9);
     c *= 0.9 + 0.18 * fhash(cell + 4.0);
     // Hedgerows: dark green, bumpy with trees
     float tree = smoothstep(0.5, 0.8, noise3(vec3(p * 0.16, 3.0)));
-    c = mix(c, vec3(0.15, 0.27, 0.1) * (0.75 + 0.45 * tree), hedge);
+    c = mix(c, ${gv3(GW.fields.hedgeColor)} * (0.75 + 0.45 * tree), hedge);
     return c;
   }
   // Lush meadow green, varying over the land (the grass blades use the same colour at their roots)
   vec3 meadowColor(vec2 p) {
     float n = noise3(vec3(p * 0.02, 11.0));
     float m = noise3(vec3(p * 0.11, 13.0));
-    vec3 c = mix(vec3(0.09, 0.25, 0.035), vec3(0.2, 0.38, 0.06), n);
+    vec3 c = mix(${gv3(GW.meadowColors[0])}, ${gv3(GW.meadowColors[1])}, n);
     return c * (0.85 + 0.3 * m);
   }
   // ----- Procedural grass (no geometry) -----
@@ -192,7 +196,7 @@ const FIELD_GLSL = /* glsl */ `
     float pv = noise3(vec3(P.xz * 0.6, 4.0));
     vec3 mid = base * 0.75;
     vec3 tip = base * (mix(1.45, 1.12, smoothstep(0.3, 0.7, base.r)) + 0.25 * pv) + vec3(0.02, 0.04, 0.0); // pale crops don't go white
-    vec3 dark = base * 0.07; // deep shade down between the blades
+    vec3 dark = base * ${gf(GW.shade)}; // deep shade down between the blades
     float sheen = max(w, 0.0) * 0.2 * str + (pv - 0.5) * 0.12;
     // From far off the blades blend into this; it brightens back to the plain ground colour by 300 m
     vec3 col = base * mix(0.72, 1.0, smoothstep(150.0, 300.0, dist)) * (1.0 + sheen);
@@ -204,7 +208,7 @@ const FIELD_GLSL = /* glsl */ `
     #endif
     int steps = dist < 10.0 ? 14 : dist < 35.0 ? 10 : 6;
     for (int k = 0; k < 3; k++) {
-      float cell = k == 0 ? 0.42 : k == 1 ? 0.14 : 0.045;
+      float cell = k == 0 ? ${gf(GW.bladeSizes[0])} : k == 1 ? ${gf(GW.bladeSizes[1])} : ${gf(GW.bladeSizes[2])};
       float wt = 1.0 - smoothstep(cell * 0.3, cell * 0.8, fw);
       if (wt <= 0.0) continue;
       float t = marchGrass(P, V, H, cell, lean, steps);
@@ -215,15 +219,15 @@ const FIELD_GLSL = /* glsl */ `
   }
   // Wild flowers grow in drifts, each mostly one kind with a few others mixed in
   vec3 petalColor(float pick) {
-    return pick < 0.22 ? vec3(0.95, 0.93, 0.88)    // daisies
-         : pick < 0.42 ? vec3(0.98, 0.82, 0.12)    // buttercups
-         : pick < 0.58 ? vec3(0.62, 0.38, 0.85)    // clover and thistle purple
-         : pick < 0.74 ? vec3(0.88, 0.14, 0.1)     // poppies
-         : pick < 0.88 ? vec3(0.35, 0.5, 0.95)     // cornflowers
-         : vec3(0.98, 0.55, 0.75);                 // pink campion
+    return pick < 0.22 ? ${gv3(GW.flowers.colors.daisy)}
+         : pick < 0.42 ? ${gv3(GW.flowers.colors.buttercup)}
+         : pick < 0.58 ? ${gv3(GW.flowers.colors.clover)}
+         : pick < 0.74 ? ${gv3(GW.flowers.colors.poppy)}
+         : pick < 0.88 ? ${gv3(GW.flowers.colors.cornflower)}
+         : ${gv3(GW.flowers.colors.campion)};
   }
   vec3 flowerColor(vec2 p, float dist, vec3 ground) {
-    float drift = smoothstep(0.52, 0.7, noise3(vec3(p * 0.04, 21.0)));
+    float drift = smoothstep(${gf(GW.flowers.drifts[0])}, ${gf(GW.flowers.drifts[1])}, noise3(vec3(p * 0.04, 21.0)));
     if (drift <= 0.0) return ground;
     vec3 kind = petalColor(ghash(floor(p * 0.05 + 0.5) + 5.0));
     vec3 col = mix(ground, ground * 0.6 + kind * 0.4, drift * 0.3 * smoothstep(15.0, 60.0, dist)); // far off: a tint
@@ -232,7 +236,7 @@ const FIELD_GLSL = /* glsl */ `
       vec2 f = fract(p * 2.2);
       vec2 at = vec2(ghash(c + 3.0), ghash(c + 8.0)) * 0.7 + 0.15;
       float r = 0.1 + 0.08 * ghash(c + 13.0);
-      float here = step(0.6, ghash(c + 21.0)) * drift;
+      float here = step(${gf(GW.flowers.density)}, ghash(c + 21.0)) * drift;
       float bloom = (1.0 - smoothstep(r * 0.6, r, length(f - at))) * here * (1.0 - smoothstep(25.0, 45.0, dist));
       vec3 petal = ghash(c + 34.0) < 0.25 ? petalColor(ghash(c + 55.0)) : kind;
       col = mix(col, petal * (0.85 + 0.3 * ghash(c + 89.0)), bloom);
@@ -268,14 +272,14 @@ const FIELDS_FRAGMENT = /* glsl */ `
     // Dense blades drawn right here, no grass geometry: meadows, grassy fields and standing crops
     float dGrass = length(cameraPosition - vCloudWorld);
     float blades = max(max(meadow, grassy), farm * (fkind >= 4.0 && fkind < 5.0 ? 0.0 : 1.0)) * (1.0 - fhedge * 0.6) * sway;
-    if (blades > 0.01 && dGrass < 300.0) {
+    if (blades > 0.01 && dGrass < ${gf(GW.maxDistance)}) {
       // grass height: meadow 0.6 m; wheat 0.9, stubble 0.15, hay 0.3 on the farms
-      float gH = farm > 0.5 ? (fkind < 1.0 ? 0.9 : fkind < 2.0 ? 0.15 : fkind >= 5.0 ? 0.3 : 0.5) : 0.6;
+      float gH = farm > 0.5 ? (fkind < 1.0 ? ${gf(GW.height.wheat)} : fkind < 2.0 ? ${gf(GW.height.stubble)} : fkind >= 5.0 ? ${gf(GW.height.hay)} : ${gf(GW.height.pasture)}) : ${gf(GW.height.meadow)};
       diffuseColor.rgb = mix(diffuseColor.rgb, grassAlbedo(vCloudWorld, diffuseColor.rgb, gH, dGrass), blades);
     }
     // Wild flowers in drifts over the natural green meadows (not the farm fields): single flowers close up, a haze of colour further off
     float wild = meadow * grassy;
-    if (wild > 0.01 && dGrass < 400.0) diffuseColor.rgb = mix(diffuseColor.rgb, flowerColor(fp, dGrass, diffuseColor.rgb), wild);
+    if (wild > 0.01 && dGrass < ${gf(GW.flowers.maxDistance)}) diffuseColor.rgb = mix(diffuseColor.rgb, flowerColor(fp, dGrass, diffuseColor.rgb), wild);
   }
 `;
 
@@ -411,17 +415,13 @@ function terrace(y, step) {
 // ===== River: comes down a valley east of the lighthouse and forks into two mouths through a swampy delta =====
 // Points are [x, d] with d = distance inland from the shoreline at that x
 const shoreZAt = (x) => SHORE_Z + headland(x) + (noise1(x * 0.008) - 0.5) * 60;
-const RIVER_PATHS = [
-  { w: 14, pts: [[830, 900], [805, 640], [822, 420], [800, 190]] }, // main river
-  { w: 10, pts: [[800, 190], [762, 110], [722, 40], [700, -20]] }, // western mouth
-  { w: 10, pts: [[800, 190], [848, 115], [888, 45], [912, -20]] }, // eastern mouth
-];
+const RIVER_PATHS = WORLD.landmarks.river; // main river and its two mouths (data/world.js)
 const RIVER_SEGS = [];
 for (const path of RIVER_PATHS) {
   const p = path.pts.map(([x, d]) => [x, shoreZAt(x) - d]);
   for (let i = 0; i < p.length - 1; i++) RIVER_SEGS.push({ ax: p[i][0], az: p[i][1], bx: p[i + 1][0], bz: p[i + 1][1], w: path.w });
 }
-const SWAMP = { x: 800, z: shoreZAt(800) - 95, r: 160 };
+const SWAMP = { x: WORLD.landmarks.swamp.x, z: shoreZAt(WORLD.landmarks.swamp.x) - WORLD.landmarks.swamp.inland, r: WORLD.landmarks.swamp.r };
 
 // Distance from the edge of the nearest river channel (negative = in the water)
 function riverDist(x, z) {
@@ -500,10 +500,10 @@ function landHeight(x, z) {
 }
 
 // A creek comes down to Bridge Bay through a steep little ravine; the coast road crosses it on a bridge
-const CREEK_X = 2050;
+const CREEK_X = WORLD.landmarks.creekX;
 // The clifftop lake on West Point (see landHeight and clifftop.js)
-const LAKE = { x: -640, r: 17, level: null };
-LAKE.z = shoreZAt(LAKE.x) - 62;
+const LAKE = { x: WORLD.landmarks.lake.x, r: WORLD.landmarks.lake.r, level: null };
+LAKE.z = shoreZAt(LAKE.x) - WORLD.landmarks.lake.inland;
 
 function carveCreek(x, d, y) {
   const off = Math.abs(x - CREEK_X + (noise1(d * 0.02) - 0.5) * 16);
@@ -618,7 +618,7 @@ scene.add(buildShoreline());
 // a separate wall rises from the rock shelf (or beach) to the clifftop: leaning back a little, with
 // layered ledges that jut out, vertical joints and buttresses, a notch cut by the waves at the
 // waterline, an overhanging lip, and its top tucked under the edge of the clifftop grass.
-const GROTTO_SPOTS = [1330, 1398, 1468]; // the chalk grottoes at East Head (landmarks.js) need openings
+const GROTTO_SPOTS = WORLD.landmarks.grottoes; // the chalk grottoes at East Head (landmarks.js) need openings
 const CLIFF_COLS = []; // every column of wall, for the rocks at its foot and the turf on its lip
 function buildCliffWalls() {
   const STEP = 2;
@@ -754,26 +754,12 @@ function buildCliffWalls() {
 
 // ===== Sea stacks =====
 // [offset from the lighthouse along x, distance offshore, radius, height above water]
-const STACK_SPOTS = [
-  [-95, -48, 5.5, 34],
-  [-40, -72, 6.5, 42],
-  [25, -58, 5.0, 30],
-  [88, -86, 7.0, 38],
-  [132, -40, 3.5, 18],
-];
+const STACK_SPOTS = WORLD.coast.seaStacks.lighthouse.map((s) => [s.x - LH_X, -s.out, s.r, s.h]); // (data/world.js)
 // The Seven Sisters: tall sandstone stacks off the far western headland [x, distance offshore, radius, height]
-const SISTERS_SPOTS = [
-  [-1965, -70, 6, 34],
-  [-1915, -98, 7, 42],
-  [-1872, -62, 5, 28],
-  [-1830, -112, 8, 46],
-  [-1782, -78, 5.5, 33],
-  [-1742, -52, 4, 21],
-  [-1700, -92, 6, 37],
-];
+const SISTERS_SPOTS = WORLD.coast.seaStacks.sisters.map((s) => [s.x, -s.out, s.r, s.h]);
 // The sea arch off West Point: two legs and a span high enough to sail under (see landmarks.js)
-const ARCH = { x: -700, R: 12, H0: 9, legR: 4.5 };
-ARCH.z = SHORE_Z + headland(ARCH.x) + (noise1(ARCH.x * 0.008) - 0.5) * 60 + 48;
+const ARCH = { ...WORLD.landmarks.seaArch };
+ARCH.z = SHORE_Z + headland(ARCH.x) + (noise1(ARCH.x * 0.008) - 0.5) * 60 + ARCH.out;
 const seaStacks = [
   ...STACK_SPOTS.map(([dx, d, r, h], i) => {
     const x = LH_X + dx;
@@ -1039,7 +1025,7 @@ function makeGlowTexture() {
 const glowTexture = makeGlowTexture();
 
 function buildLighthouse() {
-  const zTip = SHORE_Z + headland(LH_X) + (noise1(LH_X * 0.008) - 0.5) * 60 - 55;
+  const zTip = SHORE_Z + headland(LH_X) + (noise1(LH_X * 0.008) - 0.5) * 60 - WORLD.landmarks.lighthouseInland;
   const group = new THREE.Group();
   group.position.set(LH_X, landHeight(LH_X, zTip) - 1, zTip);
 

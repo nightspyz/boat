@@ -83,7 +83,7 @@ function buildDolphin() {
 }
 
 const dolphins = [];
-for (let i = 0; i < 5; i++) {
+for (let i = 0; i < WORLD.life.dolphins; i++) {
   const mesh = buildDolphin();
   mesh.visible = false;
   scene.add(mesh);
@@ -506,8 +506,8 @@ const wingGeoL = wingGeometry(-1);
 const wingGeoR = wingGeometry(1);
 
 const birds = [];
-const flock = { x: 0, z: -850 };
-for (let i = 0; i < 12; i++) {
+const flock = { x: WORLD.life.gulls.x, z: WORLD.life.gulls.z };
+for (let i = 0; i < WORLD.life.gulls.count; i++) {
   const g = new THREE.Group();
   g.rotation.order = "YXZ";
   g.add(new THREE.Mesh(birdBodyGeo, birdMat));

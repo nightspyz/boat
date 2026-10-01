@@ -484,3 +484,142 @@ function updateReef() {
     }
   }
 }
+
+// ===== Kelp forests: tall seaweed from the sea floor to just under the surface, along the rocky coast =====
+// Each plant is a few long ribbons; the waves' to-and-fro surge sways them, more towards the top, in
+// rolling bands as each wave passes. One draw call; the swaying is done on the GPU. (data/world.js: offshore.kelp)
+const kelp = (() => {
+  const K = WORLD.offshore.kelp;
+  // One plant: three ribbons twisted around a common root, each 1 unit tall, wavy-edged
+  const pos = [];
+  const col = [];
+  const idx = [];
+  const SEG = 11;
+  for (let r = 0; r < 3; r++) {
+    const a0 = (r / 3) * Math.PI * 2 + 0.4;
+    const off = 0.12;
+    const v0 = pos.length / 3;
+    for (let s = 0; s <= SEG; s++) {
+      const t = s / SEG;
+      const a = a0 + t * 2.2; // the ribbon twists as it rises
+      const w = (0.09 + 0.16 * Math.sin(Math.PI * Math.min(1, t * 1.3))) * (1 + 0.25 * Math.sin(t * 31 + r)); // wavy edge
+      const cx = Math.cos(a0) * off * (1 + t * 2.5);
+      const cz = Math.sin(a0) * off * (1 + t * 2.5);
+      const ex = Math.cos(a + Math.PI / 2) * w;
+      const ez = Math.sin(a + Math.PI / 2) * w;
+      pos.push(cx - ex, t, cz - ez, cx + ex, t, cz + ez);
+      const shade = 0.45 + 0.55 * t; // darker down in the gloom
+      col.push(shade, shade, shade, shade, shade, shade);
+      if (s) idx.push(v0 + (s - 1) * 2, v0 + s * 2, v0 + (s - 1) * 2 + 1, v0 + (s - 1) * 2 + 1, v0 + s * 2, v0 + s * 2 + 1);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+
+  // Where they grow: rocky ground between the two depths, along each bed
+  const spots = [];
+  // more plants in the shallower water, thinning out with depth as the light fades
+  const pickDepth = () => K.depth[0] + (K.depth[1] - K.depth[0]) * Math.pow(Math.random(), 1.6);
+  const FP = WORLD.inland.funPier;
+  const keep = (x, z, y) => {
+    if (y > -K.depth[0] * 0.8 || y < -K.depth[1] * 1.3) return false;
+    if (Math.hypot(x - harbor.pierX, z - harbor.pierZ1) < 90) return false; // keep the harbor channel clear
+    if (Math.abs(x - FP.x) < FP.w + 25 && z < shoreZAt(FP.x) + FP.len + 30) return false; // and clear of the funfair pier
+    return true;
+  };
+  const add = (x, z, y) => spots.push({ x, z, y, len: -y + rand(-0.6, 2.6) }); // up to the surface; the longest spread out along it
+  for (const bed of K.beds)
+    for (let k = 0, tries = 0; k < bed.count && tries < bed.count * 4; tries++) {
+      const x = rand(bed.x0, bed.x1);
+      if (bedCliff(x) < 0.35) continue; // sandy bottom: no kelp
+      const z = spotAtDepth(x, pickDepth()) + rand(-8, 30);
+      const y = seaBed(x, z);
+      if (!keep(x, z, y)) continue;
+      add(x, z, y);
+      k++;
+    }
+  // Round the foot of each sea stack (and the arch's legs): rock all the way down
+  for (const st of seaStacks)
+    for (let k = 0; k < (K.aroundSeaStacks || 0); k++) {
+      const a = rand(0, Math.PI * 2);
+      const r = st.r + 1.5 + Math.pow(Math.random(), 1.5) * 22;
+      const x = st.x + Math.cos(a) * r;
+      const z = st.z + Math.sin(a) * r;
+      const y = seaBed(x, z);
+      if (keep(x, z, y)) add(x, z, y);
+    }
+  // Rings round the rocky islands: walk out from the island until the water is deep enough
+  for (const ring of K.islands || []) {
+    const I = ISLAND[ring.island];
+    if (!I) continue;
+    for (let k = 0, tries = 0; k < ring.count && tries < ring.count * 4; tries++) {
+      const a = rand(0, Math.PI * 2);
+      const want = pickDepth();
+      for (let r = I.R * 0.8; r < I.R + 140; r += 2) {
+        const x = I.x + Math.cos(a) * r;
+        const z = I.z + Math.sin(a) * r;
+        const y = seaBed(x, z);
+        if (y > -want) continue;
+        if (keep(x, z, y)) {
+          add(x, z, y);
+          k++;
+        }
+        break;
+      }
+    }
+  }
+
+  const mat = applyUnderwater(new THREE.MeshStandardMaterial({ color: K.color, vertexColors: true, roughness: 0.6, side: THREE.DoubleSide }));
+  const underwater = mat.onBeforeCompile;
+  // The surge under each passing wave: the water moves to and fro along the wave's direction, so the
+  // kelp leans one way then the other, the top swinging furthest
+  const swayGLSL = WAVES.slice(0, 3)
+    .map((w) => `s += vec2(${w.dx.toFixed(4)}, ${w.dz.toFixed(4)}) * ${(w.a * 1.6).toFixed(4)} * cos(${w.k.toFixed(5)} * (${w.dx.toFixed(4)} * wp.x + ${w.dz.toFixed(4)} * wp.z - ${w.c.toFixed(4)} * uTime));`)
+    .join("\n            ");
+  mat.onBeforeCompile = (shader) => {
+    underwater(shader);
+    shader.uniforms.uWaveScale = waterUniforms.uWaveScale;
+    shader.vertexShader = "uniform float uWaveScale;\nuniform float uTime;\n" + shader.vertexShader.replace(
+      "#include <project_vertex>",
+      `vec4 wp = instanceMatrix * vec4(transformed, 1.0);
+          float h = position.y;
+          float len = length(instanceMatrix[1].xyz);
+          vec2 s = vec2(0.0);
+          ${swayGLSL}
+          // a slower, gentler drift of the whole forest, and each plant's own flutter
+          s += vec2(0.35, 0.2) * sin(uTime * 0.45 + wp.x * 0.05 + wp.z * 0.04);
+          s += vec2(sin(uTime * 1.7 + wp.x * 3.1), cos(uTime * 1.3 + wp.z * 2.7)) * 0.12;
+          wp.xz += s * uWaveScale * h * h * (0.6 + len * 0.18);
+          wp.y -= length(s) * uWaveScale * h * h * 0.15 * len; // leaning over, it dips a little
+          // what reaches the surface floats: it lies along the top, trailing the way the water pushes it
+          float over = max(wp.y + 0.12, 0.0);
+          wp.y -= over;
+          wp.xz += normalize(s + vec2(0.3, 0.25)) * over;
+          vec4 mvPosition = viewMatrix * wp;
+          gl_Position = projectionMatrix * mvPosition;`
+    );
+  };
+  mat.customProgramCacheKey = () => "kelp";
+
+  const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, spots.length));
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const sc = new THREE.Vector3();
+  const v = new THREE.Vector3();
+  const c = new THREE.Color();
+  spots.forEach((p, i) => {
+    const wide = rand(0.9, 1.6);
+    mesh.setMatrixAt(i, m.compose(v.set(p.x, p.y - 0.2, p.z), q.setFromEuler(e.set(0, rand(0, Math.PI * 2), 0)), sc.set(wide, p.len, wide)));
+    mesh.setColorAt(i, c.setHSL(rand(0.09, 0.2), rand(0.3, 0.55), rand(0.75, 0.95))); // olive, golden or greener plants
+  });
+  mesh.count = spots.length;
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  mesh.frustumCulled = false;
+  scene.add(mesh);
+  return { mesh, spots };
+})();

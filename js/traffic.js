@@ -188,19 +188,12 @@ function addVessel(type, model, route, speed, bob = 1) {
   scene.add(model.group);
   vessels.push({ type, ...model, route, speed, bob, s: Math.random() * 1000, x: 0, z: 0, yaw: 0 });
 }
-addVessel("sailboat", buildSailboat(), { kind: "loop", cx: -500, cz: -650, rx: 180, rz: 90 }, 1.8);
-addVessel("sailboat", buildSailboat(), { kind: "loop", cx: 700, cz: -450, rx: 250, rz: 120 }, 2);
-addVessel("sailboat", buildSailboat(), { kind: "loop", cx: -1500, cz: -400, rx: 200, rz: 100 }, 1.6);
-addVessel("tourboat", buildTourBoat(), { kind: "loop", cx: 380, cz: -700, rx: 170, rz: 140 }, 2.2);
-addVessel("ferry", buildFerry(), { kind: "line", ax: -3300, az: -250, bx: 3300, bz: -150 }, 4, 0.4);
-addVessel("tanker", buildTanker(), { kind: "line", ax: 3600, az: 500, bx: -3600, bz: 700 }, 2.5, 0.15);
-addVessel("cruise", buildCruise(), { kind: "line", ax: -3400, az: 260, bx: 3400, bz: 160 }, 3, 0.12);
-addVessel("cargo", buildCargo(), { kind: "line", ax: 3500, az: 420, bx: -3500, bz: 340 }, 3.5, 0.1);
-addVessel("coastguard", buildCoastGuard(), { kind: "line", ax: -1800, az: -850, bx: 1800, bz: -800 }, 5);
+const VESSEL_BUILDERS = { sailboat: buildSailboat, tourboat: buildTourBoat, ferry: buildFerry, tanker: buildTanker, cruise: buildCruise, cargo: buildCargo, coastguard: buildCoastGuard };
+for (const v of WORLD.traffic.vessels) addVessel(v.type, VESSEL_BUILDERS[v.type](), { ...v.route }, v.speed, v.bob ?? 1); // data/world.js
 const smallPlane = buildSmallPlane();
 smallPlane.group.rotation.order = "YXZ";
 scene.add(smallPlane.group);
-const planeRoute = { cx: 0, cz: -600, r: 1200, alt: 170, a: 0 };
+const planeRoute = { ...WORLD.traffic.sightseeingPlane, a: 0 };
 
 // Position and heading along a route at distance s travelled
 function routePoint(route, s) {

@@ -1,6 +1,6 @@
 # Game State
 
-_Version 5.0 · last updated 2026-10-01_
+_Version 6.0 · last updated 2026-10-01_
 
 Each download is named with its version (`coastline-v1.0.zip`, `coastline-v1.1.zip`, …).
 
@@ -69,6 +69,8 @@ The core loop and the upgrade loop are playable and saved between sessions. The 
 | `index.html` | Page layout: canvas, HUD, overlays, journal, minimap, touch controls |
 | `style.css` | HUD, overlays, boatyard, journal, touch controls, photo rings |
 | `js/` | The game, as plain scripts loaded in order by `index.html` (one shared global scope; no build step) |
+| `data/world.js` | The world file: where things are (coastline shape, islands, landmarks, places, roads, villages, pier, clifftop, beach camps, boat routes, offshore objects, grass and field settings, sea stacks, town, animals and moving things) as plain data; loaded before the js/ files. The code reads placements from here |
+| `editor.html`, `js/editboot.js`, `js/editor.js` | The world editor: `editor.html` opens `index.html?edit`. editboot.js (before the game) applies the unsaved draft from the browser; editor.js (after main.js) replaces the game loop with the editor (pins, panels, save) |
 | `js/core.js` | Setup, helpers, game state, keyboard input, wave + shore geometry shared by shaders and physics, islands |
 | `js/sky.js` | Sky, clouds and time-of-day uniforms, sky dome |
 | `js/water.js` | Ocean shader (waves, breakers, foam, caustics), far ocean, underwater look, lights |

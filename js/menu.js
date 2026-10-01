@@ -75,6 +75,7 @@ function renderMenu() {
 }
 
 function toggleMenu(show = menuEl.classList.contains("hidden")) {
+  if (EDIT_MODE) return; // no pause menu in the world editor
   if (show === !menuEl.classList.contains("hidden")) return;
   if (show) {
     if (photo.active) photo.exit();

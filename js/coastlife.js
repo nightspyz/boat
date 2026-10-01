@@ -8,13 +8,13 @@ const beachPoint = (x, d) => {
 };
 
 // ===== Beach camps: tents, a stone fire ring, and at night a campfire with people round it =====
-const CAMP_XS = [-430, 620, -2420];
+const CAMP_XS = WORLD.beach.camps.map((c) => c.x);
 const tentColors = [0xe0702a, 0x3f7a4a, 0x2f5d9e, 0xd8c23a, 0xb8322a];
 const flameMat = new THREE.MeshBasicMaterial({ color: 0xff9a3c, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
 const flameCore = new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
 const camps = CAMP_XS.map((x, ci) => {
   const g = new THREE.Group();
-  const c = beachPoint(x, 34);
+  const c = beachPoint(x, WORLD.beach.camps[ci].inland);
   g.position.set(c.x, c.y, c.z);
   // Two or three tents
   for (let k = 0; k < 2 + (ci % 2); k++) {
@@ -146,7 +146,7 @@ function buildHorse(color, rider) {
   scene.add(g);
   return { g, legs };
 }
-const HORSE_PATH = { x0: -500, x1: -60, d: 13 };
+const HORSE_PATH = { x0: WORLD.beach.horseRide.x0, x1: WORLD.beach.horseRide.x1, d: WORLD.beach.horseRide.inland };
 const horses = HORSE_COLORS.map((c, i) => ({ ...buildHorse(c, i !== 1), off: i * 3.2, side: i * 1.6 - 1.6, ph: i * 1.3 }));
 const ride = { s: 0, dir: 1, speed: 2, canter: 0, yaw: -Math.PI / 2 };
 let horsesOut = false;

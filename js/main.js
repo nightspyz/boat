@@ -127,4 +127,4 @@ function loop(now) {
   render();
   requestAnimationFrame(loop);
 }
-requestAnimationFrame(loop);
+if (!EDIT_MODE) requestAnimationFrame(loop); // (in edit mode, editor.js draws the world instead)

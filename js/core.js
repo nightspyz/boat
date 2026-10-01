@@ -96,7 +96,7 @@ function fbm2(x, z) {
 }
 
 // ===== State =====
-const GAME_VERSION = "5.0"; // matches the zip name (coastline-vX.Y.zip) and GAME_STATE.md
+const GAME_VERSION = "6.0"; // matches the zip name (coastline-vX.Y.zip) and GAME_STATE.md
 const DAY_LENGTH = 1440; // real seconds for one full in-game day (one game minute per second)
 const TIME_FAST_FORWARD = 30; // multiplier while holding T
 const EXPEDITION_START_HOUR = 15;
@@ -216,37 +216,13 @@ const WAVES = [
 });
 
 // ===== Shore geometry (shared by terrain, water shader and physics) =====
-const SHORE_Z = -1100; // where the beach begins (north of the start)
-const LH_X = 160; // lighthouse headland position along x
+const SHORE_Z = WORLD.coast.shoreZ; // where the beach begins (data/world.js)
+const LH_X = WORLD.coast.lighthouseX; // lighthouse headland position along x
 
-// The coastline's shape. Headlands jut out to sea (+ metres), bays cut in (−): [x, metres, width]
-const COAST_BENDS = [
-  [LH_X, 150, 170], // the lighthouse headland
-  [-700, 110, 115], // West Point, with a sea arch off its tip
-  [-1000, -75, 95], // Hidden Cove: a crescent bay under the cliffs, with a waterfall
-  [-1850, 120, 150], // the Seven Sisters headland
-  [-2350, -60, 160],
-  [1400, 125, 125], // East Head: white chalk cliffs with grottoes at the waterline
-  [2050, -80, 120], // Bridge Bay, where a creek comes down under the coast road
-  [2420, 95, 130],
-];
-// Where there's a beach at the foot of the cliffs (+ metres of sand before they rise), or where the
-// cliffs plunge straight into the sea (−): [x, metres, width]
-const CLIFF_SETBACKS = [
-  [-1000, 34, 85], // Hidden Cove
-  [-1850, 22, 90], // a strip of sand below the Seven Sisters
-  [2050, 28, 90], // Bridge Bay
-  [1400, -11, 150], // East Head's chalk walls
-];
-// Stretches that are always cliffs: [x, width]
-const CLIFF_COASTS = [
-  [-700, 220],
-  [-1000, 200],
-  [-1850, 260],
-  [1400, 230],
-  [2050, 200],
-  [2420, 200],
-];
+// The coastline's shape, from the world file, as [x, metres, width] lists
+const COAST_BENDS = WORLD.coast.bends.map((b) => [b.x, b.out, b.width]); // headlands +, bays −
+const CLIFF_SETBACKS = WORLD.coast.cliffSetbacks.map((b) => [b.x, b.metres, b.width]); // beach below cliffs +, sheer −
+const CLIFF_COASTS = WORLD.coast.cliffCoasts.map((b) => [b.x, b.width]); // always cliffs
 const bump = (list, x) => list.reduce((s, [c, a, w]) => s + a * Math.exp(-(((x - c) / w) ** 2)), 0);
 // How far the coast juts out at x: the big bends plus a small, rocky irregularity
 function headland(x) {
@@ -267,7 +243,7 @@ function beachProfile(d) {
 function cliffBed(d) {
   return d > -33.4 ? -0.3 + d * 0.35 : Math.max(-12 + (d + 33.4) * 0.04, -20);
 }
-const COVE_X = -260; // a sandy cove ahead and to the left of the start
+const COVE_X = WORLD.coast.coveX; // a sandy cove ahead and to the left of the start
 // 0 = sandy cove, 1 = cliffs (always cliffs around the lighthouse headland, never in the main cove)
 function cliffAmount(x) {
   let c = Math.max(smooth(0.42, 0.58, noise1(x * 0.004 + 7.3)), Math.exp(-(((x - LH_X) / 260) ** 2)));
@@ -285,11 +261,7 @@ function seaBed(x, z) {
 }
 
 // ===== Little islands offshore =====
-const ISLANDS = [
-  { id: "palm", x: 380, z: -700, R: 40, h: 7, seed: 1.3 },
-  { id: "seal", x: -800, z: -760, R: 22, h: 6, seed: 4.1 },
-  { id: "goat", x: 1150, z: -620, R: 75, h: 22, seed: 2.7 },
-];
+const ISLANDS = WORLD.islands.map((I) => ({ ...I })); // little islands offshore (data/world.js)
 const ISLAND = Object.fromEntries(ISLANDS.map((I) => [I.id, I]));
 // Distance inland from the island's shoreline (negative = out at sea); the shoreline wobbles with angle
 function islandInland(I, x, z) {
