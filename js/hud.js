@@ -601,7 +601,7 @@ if (isTouchDevice) {
       else if (act === "camera") resetOrbit();
       else if (act === "mute") sound.toggleMute();
       else if (state.phase === "running" && !state.paused) {
-        if (act === "photo") takePhoto();
+        if (act === "photo") photo.enter();
         if (act === "dock") tryEndExpedition();
         if (act === "dive") tryDive();
       }

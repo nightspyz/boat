@@ -47,7 +47,8 @@ function render() {
     weather.windSpeed * 1.944
   )} kn`;
 
-  renderer.render(scene, camera);
+  if (photo.active) photo.render();
+  else renderer.render(scene, camera);
   drawMinimap();
 }
 

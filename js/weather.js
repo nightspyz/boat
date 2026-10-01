@@ -222,8 +222,10 @@ function applyEnvironment(hours) {
   // Rain cuts visibility; fog cuts it to a hundred metres or so
   const fogNear = lerp(FOG_NEAR * (1 - 0.6 * wx.rain), 6, wx.fog);
   const fogFar = lerp(FOG_FAR - 150 * wx.rain, 130, wx.fog);
-  scene.fog.near = fogNear;
-  scene.fog.far = fogFar;
+  // Boats, planes and animals fade like the coast does: far off in clear air (the sea surface keeps
+  // its own, shorter fade into the far ocean)
+  scene.fog.near = lerp(lerp(250, 40, wx.rain), 6, wx.fog);
+  scene.fog.far = lerp(lerp(3200, 600, wx.rain), 130, wx.fog);
   waterUniforms.uFogNear.value = fogNear;
   waterUniforms.uFogFar.value = fogFar;
   // The coast, cliffs, rocks and town fade with distance the same way: far off in clear air, closing in

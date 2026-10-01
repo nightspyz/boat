@@ -1,6 +1,6 @@
 # Game State
 
-_Version 1.4 · last updated 2026-10-01_
+_Version 2.1 · last updated 2026-10-01_
 
 Each download is named with its version (`coastline-v1.0.zip`, `coastline-v1.1.zip`, …).
 
@@ -84,6 +84,7 @@ The core loop and the upgrade loop are playable and saved between sessions. The 
 | `js/expedition.js` | Journal entries, daily tasks, money, boatyard, saving, briefing and summary screens |
 | `js/discovery.js` | Toasts, spotting and photographing (visibility rules), journal screen, sonar and diving |
 | `js/hud.js` | Photo highlights, minimap, touch controls |
+| `js/photo.js` | Camera mode: first-person view from the foredeck, zoom, focus, shot quality, gallery |
 | `js/sound.js` | All sound, synthesized with the Web Audio API |
 | `js/main.js` | Rendering, title screen, main loop (must load last) |
 | `assets/` | Unused so far (everything is procedural) |

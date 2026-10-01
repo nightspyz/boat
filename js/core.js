@@ -140,8 +140,14 @@ window.addEventListener("keydown", (e) => {
   if (state.shopOpen && /^Digit[1-8]$/.test(e.code)) buyUpgrade(UPGRADES[Number(e.code.slice(5)) - 1].id);
   if (e.code === "KeyN" && state.phase === "title") startNewGame();
   if (state.phase !== "running" || state.paused) return;
-  if (e.code === "KeyF") takePhoto();
-  if (e.code === "KeyE") tryEndExpedition();
+  if (e.code === "Tab") {
+    e.preventDefault();
+    photo.toggleGallery();
+  }
+  if (e.code === "KeyF") photo.active ? photo.shoot() : photo.enter();
+  if (e.code === "KeyR" && photo.active) photo.focus();
+  if (e.code === "Escape" && photo.active) photo.exit();
+  if (e.code === "KeyE") photo.active ? photo.exit() : tryEndExpedition();
   if (e.code === "KeyX") tryDive();
 });
 window.addEventListener("keyup", (e) => keys.delete(e.code));

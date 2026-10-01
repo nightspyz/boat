@@ -49,4 +49,11 @@ Following the game plan: Explore → Discover → Decide → Return → Upgrade 
 - [x] v1.2: fog covers everything (terrain and cliff haze, sky and clouds, lights, planes, waterfall)
 - [x] v1.3: rain and storms close in on the land too (same distance haze as the water), and wet the ground
 - [x] v1.4: reef fish swim individually: each follows the school at its own pace, turns ripple through it
+- [x] v1.5: the journal scrolls; big map (G or 🗺️) with every discovered place labelled
+- [x] v1.6: camera mode (F): first person on the foredeck with a handheld camera: mouse look, zoom, autofocus (R), shot quality, photo card and gallery (Tab); a far more detailed cabin-cruiser boat model
+- [x] v1.7: camera mode: the mouse aims all the time (no dragging) and a click shoots instantly, so you can pan and shoot at once
+- [x] v1.8: no water inside the boat (an invisible depth-only lid at gunwale height hides the sea inside the hull)
+- [x] v1.9: closed the open top of the transom; dolphins stay 35–55 s and cruise just under the surface, flying fish glide 2–3 s, the whale stays up for five breaths and lingers longer
+- [x] v2.0: boats sail about half as fast, the small plane circles slower, the airliner takes ~45 s to cross the sky (and comes a bit more often)
+- [x] v2.1: see farther: boats, planes and animals fade out at ~3 km in clear air (was ~355 m); sighting ranges of animals, people, boats and island places raised 2–3× so zooming in can reach them
 - [x] Fixes: stuck boat, water edges, zigzag waves (water drawn far-to-near; far ocean drawn before it), smoother cliff outline

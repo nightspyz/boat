@@ -26,8 +26,41 @@
     <div id="overlay">
       <div id="overlay-title">Press Space to start</div>
       <div id="overlay-body"></div>
-      <div class="hint">W / S throttle · A / D steer · drag to look around · scroll to zoom · C camera behind boat · F photograph · J journal · G map · E dock · X dive · B boatyard · hold T to speed up time · M sound on/off · Space to pause</div>
+      <div class="hint">W / S throttle · A / D steer · drag to look around · scroll to zoom · C camera behind boat · F camera (then click to shoot) · Tab photos · J journal · G map · E dock · X dive · B boatyard · hold T to speed up time · M sound on/off · Space to pause</div>
     </div>
+    <div id="photo-ui" class="hidden">
+      <div id="cam-body">
+        <div class="hand hand-l"></div><div class="hand hand-r"></div>
+        <div class="cb-top"><span class="cb-brand">COASTLINE · D-70</span><span class="cb-dial"></span></div>
+        <div class="cb-left"></div>
+        <div id="cam-lcd">
+          <div class="lcd-grid"></div>
+          <div class="lcd-centre"></div>
+          <div id="cam-focus"></div>
+          <div id="cam-af"></div>
+          <div id="cam-zoom">1.0×</div>
+        </div>
+        <div class="cb-right">
+          <button data-cam="shoot" aria-label="Take photo"></button>
+          <button data-cam="in" aria-label="Zoom in">+</button>
+          <button data-cam="out" aria-label="Zoom out">−</button>
+          <button data-cam="focus" aria-label="Focus">AF</button>
+        </div>
+        <div class="cb-bottom" id="cam-read"></div>
+      </div>
+      <div id="cam-help">
+        <b>Camera</b>
+        <div>Mouse / drag · look</div>
+        <div>Click / F · shoot</div>
+        <div>Wheel / + − · zoom</div>
+        <div>R · focus</div>
+        <div>Tab · gallery</div>
+        <div>E / Esc · put down</div>
+        <div class="cam-touch"><button data-cam="gallery">🖼️ Gallery</button><button data-cam="exit">✕ Exit</button></div>
+      </div>
+      <div id="cam-card" class="hidden"></div>
+    </div>
+    <div id="gallery" class="hidden"></div>
     <div id="journal" class="hidden"></div>
     <div id="bigmap" class="hidden"><canvas id="bigmap-canvas"></canvas><div class="bigmap-hint">G or tap to close</div></div>
     <canvas id="minimap" width="340" height="340" aria-label="Minimap"></canvas>
@@ -65,6 +98,7 @@
   <script src="js/expedition.js"></script>
   <script src="js/discovery.js"></script>
   <script src="js/hud.js"></script>
+  <script src="js/photo.js"></script>
   <script src="js/sound.js"></script>
   <script src="js/main.js"></script>
 </body>

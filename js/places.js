@@ -755,7 +755,7 @@ function updateSheens(t) {
     const near = Math.hypot(s.x - b.x, s.z - b.z) < 700;
     s.mesh.visible = near;
     if (!near) continue;
-    s.mesh.material.uniforms.uFar.value = scene.fog.far;
+    s.mesh.material.uniforms.uFar.value = waterUniforms.uFogFar.value;
     const pos = s.mesh.geometry.attributes.position;
     for (let i = 0; i < pos.count; i++) pos.setY(i, waveHeight(s.x + pos.getX(i), s.z + pos.getZ(i), t) + 0.06);
     pos.needsUpdate = true;

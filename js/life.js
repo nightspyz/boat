@@ -100,7 +100,7 @@ function spawnPod() {
   const side = Math.random() < 0.5 ? -1 : 1;
   const count = 3 + Math.floor(Math.random() * 3);
   pod.active = true;
-  pod.life = rand(10, 18); // how long they stay curious about the boat
+  pod.life = rand(35, 55); // how long they stay curious about the boat
   pod.awayYaw = null;
   for (let i = 0; i < count; i++) {
     const d = dolphins[i];
@@ -174,7 +174,7 @@ function updateDolphins(dt, t) {
       d.phase -= d.period;
       d.period = rand(2.6, 4.8);
     }
-    let rel = -3;
+    let rel = pod.life > -10 ? -1.6 : -3; // cruising just under the surface, where you can still see them
     let vy = 0;
     if (d.phase < JUMP && pod.life > -10) {
       const u = d.phase / JUMP;
@@ -263,9 +263,9 @@ function updateFish(dt, t) {
       f.z = cz + Math.sin(a) * r;
       f.yaw = Math.random() * Math.PI * 2;
       f.t = 0;
-      f.dur = rand(0.6, 0.9);
-      f.height = rand(0.6, 1.3);
-      f.speed = rand(4, 7);
+      f.dur = rand(2.2, 3.4);
+      f.height = rand(0.6, 1.1);
+      f.speed = rand(7, 10);
       f.mesh.visible = true;
       splash(f.x, waveHeight(f.x, f.z, t), f.z, 8, 1.5);
     }
@@ -283,8 +283,10 @@ function updateFish(dt, t) {
     }
     f.x -= Math.sin(f.yaw) * f.speed * dt;
     f.z -= Math.cos(f.yaw) * f.speed * dt;
-    const rel = -0.2 + (f.height + 0.2) * Math.sin(Math.PI * u);
-    const vy = (((f.height + 0.2) * Math.PI) / f.dur) * Math.cos(Math.PI * u);
+    // Up out of the water, a long glide just above the waves, then back in
+    const lift = Math.min(1, Math.sin(Math.PI * u) * 3);
+    const rel = -0.2 + (f.height + 0.2) * lift;
+    const vy = u < 0.12 ? 3 : u > 0.88 ? -3 : 0;
     f.mesh.position.set(f.x, waveHeight(f.x, f.z, t) + rel, f.z);
     f.mesh.rotation.set(Math.atan2(vy, f.speed), f.yaw, Math.sin(f.t * 30) * 0.2);
   }
@@ -623,7 +625,7 @@ function updateWhale(dt, t) {
       const x = b.x + Math.cos(a) * r;
       const z = b.z + Math.sin(a) * r;
       if (seaBed(x, z) < -8) {
-        Object.assign(whale, { active: true, x, z, yaw: rand(0, Math.PI * 2), t: 0, life: rand(150, 260), y: -12 });
+        Object.assign(whale, { active: true, x, z, yaw: rand(0, Math.PI * 2), t: 0, life: rand(240, 360), y: -12 });
         whale.g.visible = true;
         return;
       }
@@ -648,25 +650,25 @@ function updateWhale(dt, t) {
   whale.x += fx * 2.2 * dt;
   whale.z += fz * 2.2 * dt;
 
-  // A 34-second rhythm: three breaths at the surface, a dive with the tail raised, a while down deep
-  const u = whale.t % 34;
+  // A 44-second rhythm: five breaths at the surface, a dive with the tail raised, a while down deep
+  const u = whale.t % 44;
   let depth;
   let pitch = 0;
   let tailLift = 0;
-  if (u < 15) {
+  if (u < 25) {
     depth = -0.75 + 0.35 * Math.sin((u / 5) * Math.PI * 2 - Math.PI / 2); // rolling at the surface
     pitch = 0.05 * Math.cos((u / 5) * Math.PI * 2);
-  } else if (u < 21) {
-    const d = (u - 15) / 6;
+  } else if (u < 31) {
+    const d = (u - 25) / 6;
     depth = -0.75 - 9 * d * d;
     pitch = -0.5 * Math.sin(Math.PI * Math.min(d * 1.4, 1));
     tailLift = -1.1 * Math.sin(Math.PI * d); // flukes up
   } else {
     depth = -10;
   }
-  whale.surfaced = u < 19;
+  whale.surfaced = u < 29;
   // Blow at the start of each breath: a tall column of spray
-  for (const at of [0.6, 5.6, 10.6]) if (u - dt < at && u >= at) {
+  for (const at of [0.6, 5.6, 10.6, 15.6, 20.6]) if (u - dt < at && u >= at) {
     whale.blow = 0.7;
     sound.blow(whale.x + fx * 4, whale.z + fz * 4);
   }
@@ -782,7 +784,7 @@ function updateAirplane(dt, t, lightLevel) {
         b.z + Math.cos(a) * offset - flight.dir.z * 1700
       );
       airplane.group.rotation.y = Math.atan2(-flight.dir.x, -flight.dir.z);
-      flight.speed = rand(180, 240);
+      flight.speed = rand(65, 85); // slower than real, so it crosses the sky in about 45 s
       flight.traveled = 0;
       flight.active = true;
       airplane.group.visible = true;
@@ -803,7 +805,7 @@ function updateAirplane(dt, t, lightLevel) {
 
   if (flight.traveled > 3400) {
     flight.active = false;
-    flight.timer = rand(25, 75);
+    flight.timer = rand(20, 50);
     airplane.group.visible = false;
   }
 }

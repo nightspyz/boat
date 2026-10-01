@@ -38,13 +38,13 @@ function currentSightings(env) {
   const FOG = { fog: true };
   const UNDER = { fog: true, under: true };
 
-  if (birds[0].g.visible) add("gulls", at(flock.x, 25, flock.z), 140, FOG);
-  if (whale.active && whale.surfaced) add("whale", at(whale.x, whale.y + 1.2, whale.z), 260, FOG);
-  for (const f of fishes) if (f.active) add("flyingfish", f.mesh.position.clone(), 60, FOG);
-  for (const d of dolphins) if (d.active && d.mesh.position.y > -2) add("dolphins", d.mesh.position.clone(), 160, FOG);
+  if (birds[0].g.visible) add("gulls", at(flock.x, 25, flock.z), 400, FOG);
+  if (whale.active && whale.surfaced) add("whale", at(whale.x, whale.y + 1.2, whale.z), 600, FOG);
+  for (const f of fishes) if (f.active) add("flyingfish", f.mesh.position.clone(), 160, FOG);
+  for (const d of dolphins) if (d.active && d.mesh.position.y > waveHeight(d.x, d.z, shared.uTime.value) - 2) add("dolphins", d.mesh.position.clone(), 350, FOG);
   if (reefBodies.visible) for (const s of schools) add("reeffish", at(s.x, s.y, s.z), 45, UNDER);
 
-  add("harbor", at(harbor.pierX, 2, (harbor.pierZ0 + harbor.pierZ1) / 2), 200, { fog: true, lit: true });
+  add("harbor", at(harbor.pierX, 2, (harbor.pierZ0 + harbor.pierZ1) / 2), 600, { fog: true, lit: true });
   if (cliffAmount(b.x) > 0.7) {
     const shoreZ = SHORE_Z + headland(b.x) + (noise1(b.x * 0.008) - 0.5) * 60;
     add("cliffs", at(b.x, 20, shoreZ - 25), 400);
@@ -53,9 +53,9 @@ function currentSightings(env) {
   for (const s of seaStacks) if (s.group === "lighthouse") add("stacks", at(s.x, 15, s.z), 500);
   for (const s of seaStacks) if (s.group === "sisters") add("sisters", at(s.x, s.h * 0.5, s.z), 650);
   add("arch", at(ARCH.x, ARCH.H0 + ARCH.R, ARCH.z), 650);
-  add("hiddencove", at(HIDDEN_COVE.x, 2, HIDDEN_COVE.z), 320);
-  add("waterfall", at(WATERFALL.x, (WATERFALL.foot.y + WATERFALL.top.y) / 2, WATERFALL.z + 3), 380);
-  for (const g of GROTTOES) add("grottoes", at(g.x, 2.2, g.z), 320);
+  add("hiddencove", at(HIDDEN_COVE.x, 2, HIDDEN_COVE.z), 550);
+  add("waterfall", at(WATERFALL.x, (WATERFALL.foot.y + WATERFALL.top.y) / 2, WATERFALL.z + 3), 800);
+  for (const g of GROTTOES) add("grottoes", at(g.x, 2.2, g.z), 550);
   add("bridge", at(BRIDGE.x, BRIDGE.y - 4, BRIDGE.z), 700);
 
   // The reef has to be in view: look at the sea floor ahead of the boat
@@ -67,42 +67,42 @@ function currentSightings(env) {
 
   add("wreck", at(WRECK.x, WRECK.y + 2, WRECK.z), 70, UNDER);
   add("sailboat", at(SAILBOAT.x, SAILBOAT.y + 1, SAILBOAT.z), 60, UNDER);
-  add("freighter", at(FREIGHTER.x, 2, FREIGHTER.z), 450, FOG);
+  add("freighter", at(FREIGHTER.x, 2, FREIGHTER.z), 800, FOG);
   add("temple", at(TEMPLE.x, TEMPLE.y + 3, TEMPLE.z), 60, UNDER);
   add("colossus", at(COLOSSUS.x, COLOSSUS.y + 1, COLOSSUS.z), 50, UNDER);
   const pI = ISLAND.palm;
   const sI = ISLAND.seal;
   const gI = ISLAND.goat;
-  add("palmislet", at(pI.x, 4, pI.z), 380);
-  add("sealrock", at(sI.x, 3, sI.z), 380);
-  add("goatisland", at(gI.x, 10, gI.z), 500);
+  add("palmislet", at(pI.x, 4, pI.z), 900);
+  add("sealrock", at(sI.x, 3, sI.z), 900);
+  add("goatisland", at(gI.x, 10, gI.z), 1200);
   const gTop = islandSummit(gI);
-  add("ruins", at(gTop.x, gTop.y + 3, gTop.z), 220);
-  add("watcher", at(gTop.x, gTop.y + 7, gTop.z), 200); // the statue's chest
-  for (const s of seals) add("seals", s.g.position.clone().setY(s.g.position.y + 0.5), 120);
-  for (const g of goats) add("goats", g.g.position.clone().setY(g.g.position.y + 0.8), 110);
+  add("ruins", at(gTop.x, gTop.y + 3, gTop.z), 550);
+  add("watcher", at(gTop.x, gTop.y + 7, gTop.z), 550); // the statue's chest
+  for (const s of seals) add("seals", s.g.position.clone().setY(s.g.position.y + 0.5), 350);
+  for (const g of goats) add("goats", g.g.position.clone().setY(g.g.position.y + 0.8), 320);
   for (const tu of turtles) add("turtles", tu.g.position.clone(), 45, UNDER);
   if (env.lampsOn > 0.5) add("glow", at(GLOW.x, GLOW.y, GLOW.z), 350, { lit: true });
   if (flight.active) add("airliner", airplane.group.position.clone(), 2600, { lit: true });
 
   // Boats, the sightseeing plane, and people at the cove
   const LIT_SHIPS = { ferry: true, tanker: true, coastguard: true };
-  const SHIP_RANGE = { sailboat: 450, tourboat: 400, ferry: 1200, tanker: 1800, coastguard: 600 };
+  const SHIP_RANGE = { sailboat: 1000, tourboat: 900, ferry: 1800, tanker: 2400, coastguard: 1300 };
   const SHIP_ID = { sailboat: "sailboats", tourboat: "tourboat", ferry: "ferry", tanker: "tanker", coastguard: "coastguard" };
   for (const v of vessels) {
     add(SHIP_ID[v.type], at(v.x, v.type === "tanker" ? 10 : 3, v.z), SHIP_RANGE[v.type], { lit: !!LIT_SHIPS[v.type] });
   }
-  if (smallPlane.group.visible) add("smallplane", smallPlane.group.position.clone(), 1500);
-  for (const s of swimmers) if (s.g.visible) add("swimmers", s.g.position.clone().setY(s.g.position.y + 0.25), 90);
-  for (const s of surfers) if (s.g.visible) add("surfers", s.g.position.clone().setY(s.g.position.y + 1), 150);
-  for (const g of sunbathers) if (g.visible) add("sunbathers", g.position.clone().setY(g.position.y + 1), 160);
+  if (smallPlane.group.visible) add("smallplane", smallPlane.group.position.clone(), 2200);
+  for (const s of swimmers) if (s.g.visible) add("swimmers", s.g.position.clone().setY(s.g.position.y + 0.25), 260);
+  for (const s of surfers) if (s.g.visible) add("surfers", s.g.position.clone().setY(s.g.position.y + 1), 380);
+  for (const g of sunbathers) if (g.visible) add("sunbathers", g.position.clone().setY(g.position.y + 1), 400);
 
   // The town, and its lights after dark; the river mouths and the swamp between them
   const townY = landHeight(TOWN_CENTER.x, TOWN_CENTER.z);
   add("town", at(TOWN_CENTER.x, townY + 10, TOWN_CENTER.z), 1200);
   if (env.lampsOn > 0.5) add("townlights", at(TOWN_CENTER.x, townY + 8, TOWN_CENTER.z), 2500, { lit: true });
-  add("delta", at(800, 1.5, shoreZAt(800) - 20), 450);
-  add("swamp", at(SWAMP.x, 2, SWAMP.z), 280);
+  add("delta", at(800, 1.5, shoreZAt(800) - 20), 900);
+  add("swamp", at(SWAMP.x, 2, SWAMP.z), 650);
 
   // Sunset: you have to be looking toward the sun. Aurora: toward the northern sky.
   const cam = camera.position;

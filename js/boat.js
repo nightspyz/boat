@@ -2,85 +2,285 @@
 // Part of Coastline: the js/ files load in order from index.html and share one global scope.
 
 // ===== Boat =====
+// An 8.6 m cabin cruiser: a lofted V hull with flared topsides and a rising sheer, a teak foredeck with
+// stainless railings and a bow pulpit, a cabin with a raked windshield, a radar arch, and twin outboards.
+// Bow toward -Z. The foredeck is where you stand in camera mode (BOAT_EYE).
+const BOAT_LEN = { stern: 4.0, bow: -4.6 };
+const boatT = (z) => (z - BOAT_LEN.stern) / (BOAT_LEN.bow - BOAT_LEN.stern); // 0 at the stern, 1 at the bow
+const boatHalfBeam = (z) => {
+  const t = boatT(z);
+  return 1.45 * (t < 0.5 ? 1 - 0.06 * t : Math.pow(Math.max(Math.cos(((t - 0.5) / 0.5) * Math.PI * 0.5), 0), 0.75));
+};
+const boatSheer = (z) => 1.15 + 0.5 * Math.pow(boatT(z), 2.2); // the deck edge rises toward the bow
+const boatDeck = (z) => boatSheer(z) - 0.24; // the deck sits a little below the edge, inside a low bulwark
+const BOAT_EYE = { x: 0, z: -2.3 };
+BOAT_EYE.y = boatDeck(BOAT_EYE.z) + 1.62;
+
+// Teak planking for the deck, drawn once onto a small canvas
+function teakTexture() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  const g = c.getContext("2d");
+  if (!g || !g.fillRect) return null;
+  for (let i = 0; i < 16; i++) {
+    const tone = 150 + Math.floor(Math.random() * 30);
+    g.fillStyle = `rgb(${tone}, ${Math.floor(tone * 0.68)}, ${Math.floor(tone * 0.42)})`;
+    g.fillRect(i * 16, 0, 16, 256);
+    g.fillStyle = "rgba(40, 28, 18, 0.9)"; // caulked seam
+    g.fillRect(i * 16, 0, 2, 256);
+    const joint = Math.floor(Math.random() * 256);
+    g.fillRect(i * 16, joint, 16, 2); // butt joint
+    for (let k = 0; k < 6; k++) {
+      g.fillStyle = `rgba(90, 60, 35, ${0.1 + Math.random() * 0.15})`; // grain
+      g.fillRect(i * 16 + 3 + Math.random() * 11, 0, 1, 256);
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
 function buildBoat() {
   const root = new THREE.Group();
   const tilt = new THREE.Group();
   root.add(tilt);
+  const STATIONS = 26;
+  const zAt = (i) => BOAT_LEN.stern + ((BOAT_LEN.bow - BOAT_LEN.stern) * i) / (STATIONS - 1);
 
-  // Top-down hull outline; after rotation the bow points to -Z
-  const outline = new THREE.Shape();
-  outline.moveTo(-1.3, -3.8);
-  outline.lineTo(1.3, -3.8);
-  outline.lineTo(1.5, 0.8);
-  outline.quadraticCurveTo(1.3, 3.0, 0, 4.4);
-  outline.quadraticCurveTo(-1.3, 3.0, -1.5, 0.8);
-  outline.lineTo(-1.3, -3.8);
+  // --- Hull: cross-sections from the stern to the bow, lofted into one surface ---
+  const section = (z) => {
+    const t = boatT(z);
+    const w = Math.max(boatHalfBeam(z), 0.02);
+    const s = boatSheer(z);
+    const keel = lerp(-0.78, -0.05, smooth(0.62, 1, t)); // the forefoot sweeps up into the stem
+    const chine = lerp(-0.05, 0.35, smooth(0.5, 1, t));
+    // keel → chine → flared topsides → sheer (one side)
+    return [
+      [0, keel],
+      [0.5 * w, lerp(keel, chine, 0.6)],
+      [0.92 * w, chine],
+      [1.0 * w, chine + 0.28],
+      [1.04 * w, (chine + 0.28 + s) / 2],
+      [1.07 * w, s],
+    ];
+  };
+  const hullPos = [];
+  const hullCol = [];
+  const white = [0.95, 0.95, 0.93];
+  const navy = [0.1, 0.17, 0.3];
+  const bottom = [0.55, 0.16, 0.14];
+  const colorAt = (y) => (y < -0.06 ? bottom : y < 0.22 ? navy : white);
+  const ring = []; // per station: points from the port sheer, round the keel, to the starboard sheer
+  for (let i = 0; i < STATIONS; i++) {
+    const z = zAt(i);
+    const half = section(z);
+    const pts = [...half.slice().reverse().map(([x, y]) => [-x, y]), ...half.slice(1)];
+    ring.push(pts.map(([x, y]) => [x, y, z]));
+  }
+  const P = ring[0].length;
+  const idx = [];
+  ring.forEach((pts) => pts.forEach(([x, y, z]) => (hullPos.push(x, y, z), hullCol.push(...colorAt(y)))));
+  for (let i = 0; i < STATIONS - 1; i++)
+    for (let j = 0; j < P - 1; j++) {
+      const a = i * P + j;
+      idx.push(a, a + P, a + 1, a + 1, a + P, a + P + 1);
+    }
+  // Transom: close off the stern
+  const tc = hullPos.length / 3;
+  hullPos.push(0, (ring[0][0][1] + ring[0][P >> 1][1]) / 2, BOAT_LEN.stern);
+  hullCol.push(...white);
+  for (let j = 0; j < P - 1; j++) idx.push(tc, j + 1, j);
+  idx.push(tc, 0, P - 1); // the top of the transom, between the two gunwales
+  const hullGeo = new THREE.BufferGeometry();
+  hullGeo.setAttribute("position", new THREE.Float32BufferAttribute(hullPos, 3));
+  hullGeo.setAttribute("color", new THREE.Float32BufferAttribute(hullCol, 3));
+  hullGeo.setIndex(idx);
+  hullGeo.computeVertexNormals();
+  const hullMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.05, side: THREE.DoubleSide });
+  tilt.add(new THREE.Mesh(hullGeo, hullMat));
 
-  const hullGeo = new THREE.ExtrudeGeometry(outline, {
-    depth: 1.5,
-    bevelEnabled: true,
-    bevelThickness: 0.15,
-    bevelSize: 0.15,
-    bevelSegments: 2,
-    curveSegments: 12,
-  });
-  hullGeo.rotateX(-Math.PI / 2);
-  hullGeo.translate(0, -0.7, 0);
-  const hull = new THREE.Mesh(hullGeo, new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.5 }));
-  tilt.add(hull);
+  // --- Deck: teak, gently crowned, inside the bulwark ---
+  const deckPos = [];
+  const deckUv = [];
+  const deckIdx = [];
+  for (let i = 0; i < STATIONS; i++) {
+    const z = zAt(i);
+    const w = Math.max(boatHalfBeam(z) * 1.02 - 0.05, 0.01);
+    const y = boatDeck(z);
+    for (const [x, dy] of [[-w, 0], [0, 0.05], [w, 0]]) {
+      deckPos.push(x, y + dy, z);
+      deckUv.push(x / 2.2, z / 2.2);
+    }
+  }
+  for (let i = 0; i < STATIONS - 1; i++)
+    for (let j = 0; j < 2; j++) {
+      const a = i * 3 + j;
+      deckIdx.push(a, a + 1, a + 3, a + 1, a + 4, a + 3);
+    }
+  const deckGeo = new THREE.BufferGeometry();
+  deckGeo.setAttribute("position", new THREE.Float32BufferAttribute(deckPos, 3));
+  deckGeo.setAttribute("uv", new THREE.Float32BufferAttribute(deckUv, 2));
+  deckGeo.setIndex(deckIdx);
+  deckGeo.computeVertexNormals();
+  const teak = teakTexture();
+  const deckMat = new THREE.MeshStandardMaterial({ color: teak ? 0xffffff : 0xa47449, map: teak, roughness: 0.75, side: THREE.DoubleSide });
+  tilt.add(new THREE.Mesh(deckGeo, deckMat));
 
-  const stripeGeo = new THREE.ExtrudeGeometry(outline, { depth: 0.25, bevelEnabled: false, curveSegments: 12 });
-  stripeGeo.rotateX(-Math.PI / 2);
-  stripeGeo.scale(1.15, 1, 1.06);
-  stripeGeo.translate(0, 0.1, 0);
-  tilt.add(new THREE.Mesh(stripeGeo, new THREE.MeshStandardMaterial({ color: 0xc0392b, roughness: 0.6 })));
+  // --- Gunwale rub rails along the sheer ---
+  const steel = new THREE.MeshStandardMaterial({ color: 0xd8dde2, roughness: 0.18, metalness: 0.9 });
+  const rubMat = new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.5 });
+  for (const side of [-1, 1]) {
+    const pts = [];
+    for (let i = 0; i < STATIONS; i++) {
+      const z = zAt(i);
+      pts.push(new THREE.Vector3(side * Math.max(boatHalfBeam(z), 0.02) * 1.07, boatSheer(z), z));
+    }
+    tilt.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 60, 0.06, 6, false), rubMat));
+  }
 
-  const deckGeo = new THREE.ShapeGeometry(outline, 12);
-  deckGeo.rotateX(-Math.PI / 2);
-  deckGeo.scale(0.92, 1, 0.94);
-  deckGeo.translate(0, 0.98, 0);
-  tilt.add(new THREE.Mesh(deckGeo, new THREE.MeshStandardMaterial({ color: 0x9c6b3f, roughness: 0.8 })));
+  // --- Bow railings: top and middle rails, stanchions, and the pulpit at the bow ---
+  const railFrom = -0.4;
+  const railTo = BOAT_LEN.bow + 0.35;
+  const railPoint = (side, z, h) => {
+    const w = Math.max(boatHalfBeam(z) * 1.0 - 0.1, 0.05);
+    return new THREE.Vector3(side * w, boatSheer(z) + h, z);
+  };
+  for (const h of [0.68, 0.36]) {
+    const pts = [];
+    for (let k = 0; k <= 20; k++) pts.push(railPoint(-1, lerp(railFrom, railTo, k / 20), h));
+    for (let k = 20; k >= 0; k--) pts.push(railPoint(1, lerp(railFrom, railTo, k / 20), h));
+    tilt.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 90, 0.025, 6, false), steel));
+  }
+  for (let z = railFrom; z > railTo; z -= 0.9) {
+    for (const side of [-1, 1]) {
+      const top = railPoint(side, z, 0.68);
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.68 + 0.22, 6), steel);
+      post.position.set(top.x, top.y - (0.68 + 0.22) / 2, top.z);
+      tilt.add(post);
+    }
+  }
 
-  const cabin = new THREE.Mesh(
-    new THREE.BoxGeometry(2.0, 1.3, 2.2),
-    new THREE.MeshStandardMaterial({ color: 0xe8e6df, roughness: 0.6 })
-  );
-  cabin.position.set(0, 1.63, 0.9);
-  tilt.add(cabin);
+  // --- Foredeck fittings: anchor locker hatch, anchor on the bow roller, cleats ---
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x2b2e33, roughness: 0.6, metalness: 0.4 });
+  const hatch = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.05, 0.6), new THREE.MeshStandardMaterial({ color: 0xe9e8e2, roughness: 0.4 }));
+  hatch.position.set(0, boatDeck(-3.3) + 0.07, -3.3);
+  tilt.add(hatch);
+  const roller = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.7), steel);
+  roller.position.set(0, boatSheer(-4.3) + 0.04, -4.35);
+  tilt.add(roller);
+  const anchor = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.08, 0.32), darkMat);
+  anchor.position.set(0, boatSheer(-4.55) - 0.05, -4.62);
+  tilt.add(anchor);
+  for (const [x, z] of [[-0.75, -1.2], [0.75, -1.2], [-0.35, -3.95], [0.35, -3.95], [-1.25, 3.3], [1.25, 3.3]]) {
+    const cleat = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.26), steel);
+    cleat.position.set(x * Math.min(1, boatHalfBeam(z) / 1.45 + 0.1), boatDeck(z) + 0.06, z);
+    tilt.add(cleat);
+  }
 
-  const windowMat = new THREE.MeshStandardMaterial({ color: 0x1b2a38, roughness: 0.2, emissive: 0xffc070, emissiveIntensity: 0 });
-  const windows = new THREE.Mesh(new THREE.BoxGeometry(2.04, 0.45, 2.24), windowMat);
-  windows.position.set(0, 1.85, 0.9);
-  tilt.add(windows);
-
-  const roof = new THREE.Mesh(
-    new THREE.BoxGeometry(2.3, 0.12, 2.6),
-    new THREE.MeshStandardMaterial({ color: 0x1f3a5f, roughness: 0.6 })
-  );
-  roof.position.set(0, 2.34, 0.9);
+  // --- Cabin: raked windshield, side windows, a roof that overhangs a little ---
+  const cabinW = 2.1;
+  const deckY = boatDeck(0.4);
+  const prof = new THREE.Shape();
+  prof.moveTo(-0.55, 0);
+  prof.lineTo(-0.55, 0.55);
+  prof.lineTo(0.05, 1.42);
+  prof.lineTo(1.75, 1.42);
+  prof.lineTo(1.75, 0);
+  prof.closePath();
+  const cabinGeo = new THREE.ExtrudeGeometry(prof, { depth: cabinW, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.05, bevelSegments: 2 });
+  cabinGeo.rotateY(-Math.PI / 2);
+  cabinGeo.translate(cabinW / 2, deckY, 0);
+  const cabinMat = new THREE.MeshStandardMaterial({ color: 0xf0efe9, roughness: 0.35 });
+  tilt.add(new THREE.Mesh(cabinGeo, cabinMat));
+  const windowMat = new THREE.MeshStandardMaterial({ color: 0x18242e, roughness: 0.08, metalness: 0.3, emissive: 0xffc070, emissiveIntensity: 0 });
+  // Windshield: along the raked front face
+  const wsLen = Math.hypot(0.6, 0.87);
+  const windshield = new THREE.Mesh(new THREE.PlaneGeometry(cabinW - 0.3, wsLen * 0.72), windowMat);
+  windshield.position.set(0, deckY + 0.98, -0.25 - 0.06);
+  windshield.rotation.x = -Math.atan2(0.6, 0.87);
+  windshield.rotation.y = Math.PI;
+  tilt.add(windshield);
+  for (const side of [-1, 1]) {
+    const win = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 0.42), windowMat);
+    win.position.set(side * (cabinW / 2 + 0.056), deckY + 1.0, 0.85);
+    win.rotation.y = side * Math.PI * 0.5;
+    tilt.add(win);
+  }
+  const roofMat = new THREE.MeshStandardMaterial({ color: 0xe4e2db, roughness: 0.4 });
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(cabinW + 0.25, 0.08, 2.0), roofMat);
+  roof.position.set(0, deckY + 1.5, 0.82);
   tilt.add(roof);
+  // Grab rails on the roof
+  for (const side of [-1, 1]) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.05, 1.6), steel);
+    rail.position.set(side * 0.85, deckY + 1.6, 0.9);
+    tilt.add(rail);
+  }
 
-  const mast = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.05, 0.05, 1.4, 8),
-    new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.4, metalness: 0.5 })
-  );
-  mast.position.set(0, 3.1, 1.4);
-  tilt.add(mast);
-
+  // --- Radar arch over the cockpit, with a radome, antennas and the masthead light ---
+  const archZ = 1.9;
+  const archPts = [];
+  for (let k = 0; k <= 16; k++) {
+    const a = (k / 16) * Math.PI;
+    archPts.push(new THREE.Vector3(Math.cos(a) * 1.12, boatSheer(archZ) + Math.sin(a) * 1.9 * (0.85 + 0.15 * Math.sin(a)), archZ));
+  }
+  tilt.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(archPts), 40, 0.07, 8, false), cabinMat));
+  const archTop = boatSheer(archZ) + 1.9;
+  const radome = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.2, 18), new THREE.MeshStandardMaterial({ color: 0xf6f6f2, roughness: 0.3 }));
+  radome.position.set(0, archTop + 0.12, archZ);
+  tilt.add(radome);
+  for (const x of [-0.6, 0.6]) {
+    const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.03, 1.6, 6), new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.4 }));
+    ant.position.set(x, archTop + 0.6, archZ);
+    tilt.add(ant);
+  }
   const lampMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffe0a0, emissiveIntensity: 0 });
-  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), lampMat);
-  lamp.position.set(0, 3.85, 1.4);
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 8), lampMat);
+  lamp.position.set(0, archTop + 0.45, archZ);
   tilt.add(lamp);
-
   const lampLight = new THREE.PointLight(0xffd9a0, 0, 30, 2);
   lampLight.position.copy(lamp.position);
   tilt.add(lampLight);
+
+  // --- Cockpit: bench seat, helm seat backs, swim platform and twin outboards ---
+  const cushion = new THREE.MeshStandardMaterial({ color: 0xd9d2c3, roughness: 0.8 });
+  const bench = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.42, 0.55), cushion);
+  bench.position.set(0, boatDeck(3.4) + 0.21, 3.45);
+  tilt.add(bench);
+  for (const x of [-0.5, 0.5]) {
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.85, 0.5), cushion);
+    seat.position.set(x, boatDeck(2.1) + 0.42, 2.2);
+    tilt.add(seat);
+  }
+  const platform = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.08, 0.55), deckMat);
+  platform.position.set(0, 0.32, BOAT_LEN.stern + 0.3);
+  tilt.add(platform);
+  const cowlMat = new THREE.MeshStandardMaterial({ color: 0x24272b, roughness: 0.3, metalness: 0.2 });
+  for (const x of [-0.55, 0.55]) {
+    const cowl = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.75, 0.6), cowlMat);
+    cowl.position.set(x, 0.95, BOAT_LEN.stern + 0.42);
+    tilt.add(cowl);
+    const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.0, 0.22), cowlMat);
+    shaft.position.set(x, 0.1, BOAT_LEN.stern + 0.45);
+    tilt.add(shaft);
+  }
+
+  // --- Life ring on the cabin side, fenders along the cockpit ---
+  const ring0 = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.07, 8, 20), new THREE.MeshStandardMaterial({ color: 0xff6a1f, roughness: 0.6 }));
+  ring0.position.set(cabinW / 2 + 0.09, deckY + 0.55, 1.3);
+  ring0.rotation.y = Math.PI / 2;
+  tilt.add(ring0);
+  for (const side of [-1, 1]) {
+    const fender = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.5, 10), new THREE.MeshStandardMaterial({ color: 0xf4f4f0, roughness: 0.5 }));
+    fender.position.set(side * (boatHalfBeam(2.8) * 1.07 + 0.1), boatSheer(2.8) - 0.4, 2.8);
+    tilt.add(fender);
+  }
 
   // Navigation lights (brightness is set in applyEnvironment)
   const navLights = [];
   function addNavLight(color, x, y, z) {
     const mat = new THREE.MeshStandardMaterial({ color: 0x222222, emissive: color, emissiveIntensity: 0 });
-    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), mat);
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), mat);
     bulb.position.set(x, y, z);
     const glow = new THREE.Sprite(
       new THREE.SpriteMaterial({
@@ -92,24 +292,43 @@ function buildBoat() {
         depthWrite: false,
       })
     );
-    glow.scale.set(1.2, 1.2, 1);
+    glow.scale.set(1.0, 1.0, 1);
     glow.position.copy(bulb.position);
     tilt.add(bulb, glow);
     navLights.push({ bulb, mat, glow, color: new THREE.Color(color) });
   }
-  addNavLight(0xff2a2a, -1.06, 1.7, -0.15); // port (red)
-  addNavLight(0x2aff5a, 1.06, 1.7, -0.15); // starboard (green)
-  addNavLight(0xffffff, 0, 1.15, 3.9); // stern (white)
+  addNavLight(0xff2a2a, -(cabinW / 2 + 0.07), deckY + 0.35, -0.3); // port (red)
+  addNavLight(0x2aff5a, cabinW / 2 + 0.07, deckY + 0.35, -0.3); // starboard (green)
+  addNavLight(0xffffff, 0, archTop + 0.05, archZ + 0.15); // stern (white)
 
-  // Forward searchlight on the cabin roof
+  // Searchlight on the cabin roof
   const headlampMat = new THREE.MeshStandardMaterial({ color: 0x333333, emissive: 0xfff2d8, emissiveIntensity: 0 });
-  const headlamp = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.2, 0.15), headlampMat);
-  headlamp.position.set(0, 2.5, -0.35);
+  const headlamp = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 0.18, 12), headlampMat);
+  headlamp.rotation.x = Math.PI / 2;
+  headlamp.position.set(0, deckY + 1.65, 0.0);
   tilt.add(headlamp);
   const headlight = new THREE.SpotLight(0xfff2d8, 0, 70, 0.4, 0.5, 1);
-  headlight.position.set(0, 2.5, -0.45);
+  headlight.position.set(0, deckY + 1.65, -0.15);
   headlight.target.position.set(0, -1.5, -25);
   tilt.add(headlight, headlight.target);
+
+  // --- Water mask: an invisible lid at gunwale height. It only writes depth, after the deck is drawn and
+  // before the sea, so waves that reach above the deck never show up inside the boat ---
+  const maskPos = [];
+  const maskIdx = [];
+  for (let i = 0; i < STATIONS; i++) {
+    const z = zAt(i);
+    const w = Math.max(boatHalfBeam(z) - 0.04, 0);
+    const y = boatSheer(z) - 0.03;
+    maskPos.push(-w, y, z, w, y, z);
+    if (i) maskIdx.push(2 * i - 2, 2 * i - 1, 2 * i, 2 * i - 1, 2 * i + 1, 2 * i);
+  }
+  const maskGeo = new THREE.BufferGeometry();
+  maskGeo.setAttribute("position", new THREE.Float32BufferAttribute(maskPos, 3));
+  maskGeo.setIndex(maskIdx);
+  const waterMask = new THREE.Mesh(maskGeo, new THREE.MeshBasicMaterial({ colorWrite: false, side: THREE.DoubleSide }));
+  waterMask.renderOrder = 0.4; // after the boat and the land (0), before the far ocean (0.5) and the water (1)
+  tilt.add(waterMask);
 
   return { root, tilt, windowMat, lamp, lampMat, lampLight, navLights, headlight, headlampMat };
 }
@@ -286,6 +505,10 @@ const ORBIT_DEFAULT = { yaw: 0, pitch: 0.28, dist: 14.6 };
 const orbit = { ...ORBIT_DEFAULT, active: 0 };
 
 function updateCamera(dt, snap) {
+  if (photo.active) {
+    photo.updateView(dt); // camera mode: on the foredeck (photo.js)
+    return;
+  }
   const b = state.boat;
   const h = b.yaw + orbit.yaw;
   const fx = -Math.sin(h);
@@ -328,6 +551,18 @@ canvas.addEventListener("pointermove", (e) => {
   prev.x = e.clientX;
   prev.y = e.clientY;
   dragMoved += Math.abs(dx) + Math.abs(dy);
+  if (photo.active) {
+    if (orbitPointers.size === 1) {
+      if (e.pointerType !== "mouse") photo.addLook(-dx, -dy); // the mouse aims by itself (photo.js)
+    }
+    else if (orbitPointers.size === 2 && pinchStart) {
+      const [a, b] = [...orbitPointers.values()];
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      photo.zoomBy(Math.pow(dist / Math.max(pinchStart.dist, 1), 0.5));
+      pinchStart.dist = dist;
+    }
+    return;
+  }
   if (orbitPointers.size === 1) {
     orbit.yaw -= dx * 0.006;
     orbit.pitch = clamp(orbit.pitch + dy * 0.005, 0.02, 1.35);
@@ -348,6 +583,7 @@ canvas.addEventListener(
   "wheel",
   (e) => {
     e.preventDefault();
+    if (photo.active) return photo.zoomBy(Math.pow(1.0015, -e.deltaY));
     orbit.dist = clamp(orbit.dist * (1 + e.deltaY * 0.001), 6, 60);
     orbit.active = 0.5;
   },

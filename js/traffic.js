@@ -127,13 +127,13 @@ function addVessel(type, model, route, speed, bob = 1) {
   scene.add(model.group);
   vessels.push({ type, ...model, route, speed, bob, s: Math.random() * 1000, x: 0, z: 0, yaw: 0 });
 }
-addVessel("sailboat", buildSailboat(), { kind: "loop", cx: -500, cz: -650, rx: 180, rz: 90 }, 3.5);
-addVessel("sailboat", buildSailboat(), { kind: "loop", cx: 700, cz: -450, rx: 250, rz: 120 }, 4);
-addVessel("sailboat", buildSailboat(), { kind: "loop", cx: -1500, cz: -400, rx: 200, rz: 100 }, 3);
-addVessel("tourboat", buildTourBoat(), { kind: "loop", cx: 380, cz: -700, rx: 170, rz: 140 }, 4.5);
-addVessel("ferry", buildFerry(), { kind: "line", ax: -3300, az: -250, bx: 3300, bz: -150 }, 9, 0.4);
-addVessel("tanker", buildTanker(), { kind: "line", ax: 3600, az: 500, bx: -3600, bz: 700 }, 5, 0.15);
-addVessel("coastguard", buildCoastGuard(), { kind: "line", ax: -1800, az: -850, bx: 1800, bz: -800 }, 13);
+addVessel("sailboat", buildSailboat(), { kind: "loop", cx: -500, cz: -650, rx: 180, rz: 90 }, 1.8);
+addVessel("sailboat", buildSailboat(), { kind: "loop", cx: 700, cz: -450, rx: 250, rz: 120 }, 2);
+addVessel("sailboat", buildSailboat(), { kind: "loop", cx: -1500, cz: -400, rx: 200, rz: 100 }, 1.6);
+addVessel("tourboat", buildTourBoat(), { kind: "loop", cx: 380, cz: -700, rx: 170, rz: 140 }, 2.2);
+addVessel("ferry", buildFerry(), { kind: "line", ax: -3300, az: -250, bx: 3300, bz: -150 }, 4, 0.4);
+addVessel("tanker", buildTanker(), { kind: "line", ax: 3600, az: 500, bx: -3600, bz: 700 }, 2.5, 0.15);
+addVessel("coastguard", buildCoastGuard(), { kind: "line", ax: -1800, az: -850, bx: 1800, bz: -800 }, 5);
 const smallPlane = buildSmallPlane();
 smallPlane.group.rotation.order = "YXZ";
 scene.add(smallPlane.group);
@@ -172,7 +172,7 @@ function updateTraffic(dt, t, env) {
     }
   }
   // Small plane circling the bay
-  planeRoute.a += (45 / planeRoute.r) * dt;
+  planeRoute.a += (28 / planeRoute.r) * dt; // slow, so it stays in view a while
   const a = planeRoute.a;
   smallPlane.group.position.set(planeRoute.cx + Math.cos(a) * planeRoute.r, planeRoute.alt, planeRoute.cz + Math.sin(a) * planeRoute.r);
   smallPlane.group.rotation.set(0, Math.atan2(Math.sin(a), -Math.cos(a)), -0.25);
