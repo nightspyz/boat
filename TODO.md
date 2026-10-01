@@ -56,4 +56,7 @@ Following the game plan: Explore → Discover → Decide → Return → Upgrade 
 - [x] v1.9: closed the open top of the transom; dolphins stay 35–55 s and cruise just under the surface, flying fish glide 2–3 s, the whale stays up for five breaths and lingers longer
 - [x] v2.0: boats sail about half as fast, the small plane circles slower, the airliner takes ~45 s to cross the sky (and comes a bit more often)
 - [x] v2.1: see farther: boats, planes and animals fade out at ~3 km in clear air (was ~355 m); sighting ranges of animals, people, boats and island places raised 2–3× so zooming in can reach them
+- [x] v2.2: 10 new photo subjects (orcas, blue shark, manta ray, cormorants, pelicans, trawler + gulls, hot-air balloon, stranded coaster, rainbow, glowing plankton); the journal is now a two-page photo book built from your own photos
+- [x] v2.3: raising the camera (F) keeps facing the way you were already looking
+- [x] v2.4: right click also puts the camera down
 - [x] Fixes: stuck boat, water edges, zigzag waves (water drawn far-to-near; far ocean drawn before it), smoother cliff outline

@@ -12,6 +12,11 @@ const JOURNAL = [
   { id: "seals", cat: "Wildlife", name: "Seal colony" },
   { id: "goats", cat: "Wildlife", name: "Wild goats" },
   { id: "whale", cat: "Wildlife", name: "Humpback whale (in fog)" },
+  { id: "orcas", cat: "Wildlife", name: "Orca pod" },
+  { id: "shark", cat: "Wildlife", name: "Blue shark" },
+  { id: "manta", cat: "Wildlife", name: "Manta ray" },
+  { id: "cormorants", cat: "Wildlife", name: "Cormorant roost" },
+  { id: "pelicans", cat: "Wildlife", name: "Pelican squadron" },
   { id: "harbor", cat: "Coast & islands", name: "Harbor Cove" },
   { id: "cliffs", cat: "Coast & islands", name: "Limestone cliffs" },
   { id: "lighthouse", cat: "Coast & islands", name: "Lighthouse" },
@@ -29,12 +34,15 @@ const JOURNAL = [
   { id: "sisters", cat: "Coast & islands", name: "The Seven Sisters" },
   { id: "grottoes", cat: "Coast & islands", name: "Chalk grottoes" },
   { id: "bridge", cat: "Coast & islands", name: "Coast road bridge" },
+  { id: "beachwreck", cat: "Coast & islands", name: "Stranded coaster" },
   { id: "sailboats", cat: "People & boats", name: "Sailboats" },
   { id: "tourboat", cat: "People & boats", name: "Island tour boat" },
   { id: "ferry", cat: "People & boats", name: "Car ferry" },
   { id: "tanker", cat: "People & boats", name: "Oil tanker" },
   { id: "coastguard", cat: "People & boats", name: "Coast guard patrol" },
   { id: "smallplane", cat: "People & boats", name: "Sightseeing plane" },
+  { id: "trawler", cat: "People & boats", name: "Fishing trawler" },
+  { id: "balloon", cat: "People & boats", name: "Hot-air balloon" },
   { id: "swimmers", cat: "People & boats", name: "Swimmers" },
   { id: "surfers", cat: "People & boats", name: "Surfers" },
   { id: "sunbathers", cat: "People & boats", name: "Sunbathers" },
@@ -48,6 +56,7 @@ const JOURNAL = [
   { id: "ruins", cat: "Ruins & relics", name: "Hilltop ruins" },
   { id: "watcher", cat: "Ruins & relics", name: "The Watcher statue" },
   { id: "glow", cat: "Mysteries", name: "Strange light" },
+  { id: "biolum", cat: "Mysteries", name: "Glowing plankton" },
   { id: "bell", cat: "Relics", name: "Ship's bell" },
   { id: "coin", cat: "Relics", name: "Temple coin" },
   { id: "logbook", cat: "Relics", name: "Captain's logbook" },
@@ -65,6 +74,7 @@ const JOURNAL = [
   { id: "rain", cat: "Sky & weather", name: "Rain at sea" },
   { id: "storm", cat: "Sky & weather", name: "Storm" },
   { id: "fog", cat: "Sky & weather", name: "Fog bank" },
+  { id: "rainbow", cat: "Sky & weather", name: "Rainbow" },
 ];
 const JOURNAL_BY_ID = Object.fromEntries(JOURNAL.map((e) => [e.id, e]));
 
@@ -82,6 +92,8 @@ const JOURNAL_VALUES = {
   swimmers: 40, surfers: 80, sunbathers: 30,
   airliner: 60, sunset: 80, stars: 80, aurora: 300, rain: 60, storm: 150, fog: 100,
   crate: 150, bottle: 250, amphora: 400,
+  orcas: 450, shark: 250, manta: 300, cormorants: 120, pelicans: 150, beachwreck: 250, trawler: 100, balloon: 200,
+  biolum: 400, rainbow: 250,
 };
 for (const e of JOURNAL) e.value = JOURNAL_VALUES[e.id] || 0;
 const photoValue = (entry) => Math.round(entry.value * 0.5);

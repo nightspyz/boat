@@ -110,6 +110,7 @@ function loop(now) {
     updateReefFish(dt, waveTime);
     updateReef();
     updateLandmarks(dt, waveTime, env);
+    updateSights(dt, waveTime, env);
     updateSplashes(dt);
     splashMat.color.setScalar(0.3 + 0.7 * env.lightLevel);
     updateBirds(dt, waveTime, env.light);

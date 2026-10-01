@@ -117,6 +117,7 @@ function currentSightings(env) {
   if (wx.rain > 0.5) add("rain", null, Infinity);
   if (wx.storm > 0.5) add("storm", null, Infinity);
   if (wx.fog > 0.6) add("fog", null, Infinity);
+  addSights(add, env); // orcas, shark, manta, pelicans, balloon, rainbow… (sights.js)
   // Things washed up on the beaches after a storm
   for (const w of washedUp) if (w.g.visible) add(w.id, w.g.position.clone().setY(w.g.position.y + 0.5), 110, FOG);
   return list;
@@ -251,35 +252,7 @@ function takePhoto() {
   }
 }
 
-function renderJournal() {
-  const found = JOURNAL.filter((e) => journal[e.id].seen).length;
-  const cats = [...new Set(JOURNAL.map((e) => e.cat))];
-  journalEl.innerHTML =
-    `<h2>🌊 Ocean Journal</h2>
-     <div style="opacity:0.75">Day ${expedition.day} · $${expedition.funds.toLocaleString()} · ${found}/${JOURNAL.length} discovered · J to close</div>` +
-    cats
-      .map(
-        (cat) =>
-          `<h3>${cat}</h3>` +
-          JOURNAL.filter((e) => e.cat === cat)
-            .map((e) => {
-              const j = journal[e.id];
-              return j.seen
-                ? `<div class="entry"><span>${e.name}</span><span>✓${j.photo ? " 📷" : ""} <span style="opacity:0.6">$${
-                    e.value + (j.photo && e.cat !== "Relics" ? photoValue(e) : 0)
-                  }</span></span></div>`
-                : `<div class="entry unknown"><span>???</span><span></span></div>`;
-            })
-            .join("")
-      )
-      .join("");
-}
-
-function toggleJournal() {
-  const show = journalEl.classList.contains("hidden");
-  if (show) renderJournal();
-  journalEl.classList.toggle("hidden", !show);
-}
+// The journal (renderJournal, toggleJournal) lives in journal.js
 
 // ===== Sonar and diving =====
 // Every underwater site, and the relic a diver can recover there

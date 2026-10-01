@@ -178,6 +178,7 @@ const MAP_PLACES = [
   { id: "goatisland", x: ISLAND.goat.x, z: ISLAND.goat.z },
   { id: "hiddencove", x: HIDDEN_COVE.x, z: HIDDEN_COVE.z },
   { id: "swamp", x: SWAMP.x, z: SWAMP.z },
+  { id: "beachwreck", x: BEACH_WRECK.x, z: BEACH_WRECK.z },
 ].filter((p, i, all) => all.findIndex((q) => q.id === p.id) === i);
 
 function toggleBigMap(show = bigMapEl.classList.contains("hidden")) {

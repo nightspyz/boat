@@ -11,7 +11,7 @@ const photo = (() => {
   const cardEl = document.getElementById("cam-card");
   const galleryEl = document.getElementById("gallery");
   const STORE = "coastline-photos-v1";
-  const MAX_PHOTOS = 40;
+  const MAX_RECENT = 30; // besides the best photo of each subject, which is always kept (for the journal)
   const BASE_FOV = 50; // the LCD's view at 1× zoom (vertical, degrees)
 
   const look = { yaw: 0, pitch: -0.04, speed: 0 };
@@ -27,17 +27,47 @@ const photo = (() => {
   let pendingShot = null;
   let cardTimer = 0;
   let shotsToday = 0;
+  const STARS = { Poor: 1, Okay: 2, Good: 3, Excellent: 4 };
   let photos = [];
   try {
     photos = JSON.parse(localStorage.getItem(STORE) || "[]");
   } catch (e) {
     photos = [];
   }
+  // Older photos only had the subject's name
+  for (const p of photos) {
+    if (p.id === undefined) p.id = (JOURNAL.find((e) => e.name === p.subject) || {}).id || null;
+    if (!p.stars) p.stars = STARS[p.quality] || 0;
+  }
+  // The best photo of each subject: most stars, then the newest
+  const bestOf = (id) => {
+    let best = null;
+    for (const p of photos) if (p.id === id && (!best || p.stars >= best.stars)) best = p;
+    return best;
+  };
+  const keepers = () => new Set(JOURNAL.map((e) => bestOf(e.id)).filter(Boolean));
+  function prune() {
+    const keep = keepers();
+    let spare = photos.filter((p) => !keep.has(p)).length;
+    while (spare > MAX_RECENT) {
+      const i = photos.findIndex((p) => !keep.has(p));
+      photos.splice(i, 1);
+      spare--;
+    }
+  }
   const savePhotos = () => {
-    try {
-      localStorage.setItem(STORE, JSON.stringify(photos));
-    } catch (e) {
-      // Storage full or blocked: keep them for this session only
+    prune();
+    for (let tries = 0; tries < 40; tries++) {
+      try {
+        localStorage.setItem(STORE, JSON.stringify(photos));
+        return;
+      } catch (e) {
+        // Storage full: drop the oldest spare photo (or, failing that, the oldest of all) and try again
+        if (!photos.length) return;
+        const keep = keepers();
+        const i = photos.findIndex((p) => !keep.has(p));
+        photos.splice(i >= 0 ? i : 0, 1);
+      }
     }
   };
 
@@ -49,8 +79,11 @@ const photo = (() => {
   function enter() {
     if (api.active || !canUse()) return;
     api.active = true;
-    look.yaw = 0;
-    look.pitch = -0.04;
+    // Face the way the outside camera was looking. It always tilts down a little toward the boat,
+    // so add that back to land near the horizon rather than on the deck.
+    const dir = camera.getWorldDirection(eye);
+    look.yaw = wrapAngle(Math.atan2(-dir.x, -dir.z) - state.boat.yaw);
+    look.pitch = clamp(Math.asin(clamp(dir.y, -1, 1)) + 0.25, -0.6, 1.2);
     zoom = 1;
     mouse.x = mouse.y = 0.5;
     focus.id = null;
@@ -169,16 +202,28 @@ const photo = (() => {
     const frame = inFrame();
     let earned = 0;
     let main = null;
+    const b = state.boat;
+    const when = { day: expedition.day, time: formatClock(state.timeOfDay) };
     for (const f of frame) {
       const id = f.s.id;
       const entry = JOURNAL_BY_ID[id];
       const q = quality(f);
-      if (!main) main = { id, q };
+      const value = Math.round(photoValue(entry) * q.mult);
+      if (!main) main = { id, q, value };
       discover(id);
+      // The journal's record of this subject
+      const j = journal[id];
+      j.shots = (j.shots || 0) + 1;
+      if (!j.first) j.first = when;
+      j.best = Math.max(j.best || 0, value);
+      if (!j.where || STARS[q.name] >= (j.whereStars || 0)) {
+        j.where = { x: Math.round(b.x), z: Math.round(b.z) };
+        j.whereStars = STARS[q.name];
+      }
       if (!journal[id].photo) {
         journal[id].photo = true;
         expedition.photos++;
-        const bonus = Math.round(photoValue(entry) * q.mult);
+        const bonus = value;
         expedition.photoEarnings += bonus;
         earned += bonus;
         sound.chime("photo");
@@ -189,11 +234,17 @@ const photo = (() => {
     }
     // The picture itself is grabbed straight after the LCD is drawn (see render)
     pendingShot = {
+      id: main ? main.id : null,
+      also: frame.slice(1, 4).map((f) => f.s.id),
       subject: main ? JOURNAL_BY_ID[main.id].name : "Nothing notable",
       quality: main ? main.q.name : "—",
+      stars: main ? STARS[main.q.name] : 0,
+      value: main ? main.value : 0,
       earned,
-      day: expedition.day,
-      time: formatClock(state.timeOfDay),
+      day: when.day,
+      time: when.time,
+      x: Math.round(b.x),
+      z: Math.round(b.z),
     };
   }
 
@@ -212,14 +263,14 @@ const photo = (() => {
     galleryEl.classList.toggle("hidden", !show);
     if (!show) return;
     galleryEl.innerHTML =
-      `<h2>📷 Photo gallery <span>${photos.length}/${MAX_PHOTOS} · Tab or tap to close</span></h2>` +
+      `<h2>📷 Photo gallery <span>${photos.length} photos · Tab or tap to close · J for the journal</span></h2>` +
       (photos.length
         ? `<div class="g-grid">${photos
             .slice()
             .reverse()
             .map(
               (p) =>
-                `<figure>${p.img ? `<img src="${p.img}" alt="">` : "<div class='g-none'></div>"}<figcaption>${p.subject}<br><span>${p.quality} · Day ${p.day} ${p.time}</span></figcaption></figure>`
+                `<figure>${p.img ? `<img src="${p.img}" alt="">` : "<div class='g-none'></div>"}<figcaption>${p.subject}<br><span>${"★".repeat(p.stars || 0)} ${p.quality} · Day ${p.day} ${p.time}</span></figcaption></figure>`
             )
             .join("")}</div>`
         : `<p>No photos yet. Press F to raise your camera.</p>`);
@@ -256,10 +307,10 @@ const photo = (() => {
         try {
           const pr = renderer.getPixelRatio();
           const c = document.createElement("canvas");
-          c.width = 320;
-          c.height = Math.round((320 * r.height) / r.width);
+          c.width = 420;
+          c.height = Math.round((420 * r.height) / r.width);
           c.getContext("2d").drawImage(renderer.domElement, r.left * pr, r.top * pr, r.width * pr, r.height * pr, 0, 0, c.width, c.height);
-          pendingShot.img = c.toDataURL("image/jpeg", 0.8);
+          pendingShot.img = c.toDataURL("image/jpeg", 0.72);
         } catch (e) {
           pendingShot.img = null;
         }
@@ -269,8 +320,8 @@ const photo = (() => {
     }
     if (pendingShot) {
       photos.push(pendingShot);
-      while (photos.length > MAX_PHOTOS) photos.shift();
       savePhotos();
+      if (!journalEl.classList.contains("hidden")) renderJournal();
       showCard(pendingShot);
       pendingShot = null;
     }
@@ -304,7 +355,9 @@ const photo = (() => {
   // ---- Input ----
   // The mouse always aims (button held or not), and a click always shoots, so you can pan and shoot at once
   canvas.addEventListener("mousedown", (e) => {
-    if (!api.active || e.button !== 0) return;
+    if (!api.active) return;
+    if (e.button === 2) return exit(); // right click puts the camera down
+    if (e.button !== 0) return;
     shoot();
     if (document.pointerLockElement !== canvas && canvas.requestPointerLock && !touch.active) {
       try {
@@ -358,6 +411,11 @@ const photo = (() => {
     addLook,
     zoomBy: (f) => setZoom(zoom * f),
     newDay: () => (shotsToday = 0),
+    get photos() {
+      return photos;
+    },
+    bestOf,
+    STARS,
   };
   return api;
 })();
