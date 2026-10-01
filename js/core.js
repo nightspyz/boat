@@ -137,7 +137,10 @@ window.addEventListener("keydown", (e) => {
     if (state.shopOpen) closeShop();
     else openShop();
   }
-  if (state.shopOpen && /^Digit[1-8]$/.test(e.code)) buyUpgrade(UPGRADES[Number(e.code.slice(5)) - 1].id);
+  if (state.shopOpen && /^Digit[0-9]$/.test(e.code)) {
+    const n = Number(e.code.slice(5)) || 10; // 1–9, and 0 for the tenth
+    if (UPGRADES[n - 1]) buyUpgrade(UPGRADES[n - 1].id);
+  }
   if (e.code === "KeyN" && state.phase === "title") startNewGame();
   if (state.phase !== "running" || state.paused) return;
   if (e.code === "Tab") {
@@ -147,7 +150,13 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "KeyF") photo.active ? photo.shoot() : photo.enter();
   if (e.code === "KeyR" && photo.active) photo.focus();
   if (e.code === "Escape" && photo.active) photo.exit();
-  if (e.code === "KeyE") photo.active ? photo.exit() : tryEndExpedition();
+  if (e.code === "KeyE" && !photo.droneMode) photo.active ? photo.exit() : tryEndExpedition(); // (E climbs in the drone)
+  // Gear (gear.js, photo.js) — also on the inventory bar
+  if (e.code === "KeyV") photo.droneMode ? photo.exit() : photo.enterDrone();
+  if (e.code === "KeyQ" && !photo.active) gear.castOrReel();
+  if (e.code === "KeyL") gear.toggleSpot();
+  if (e.code === "KeyK") gear.launchFirework();
+  if (/^Digit[1-7]$/.test(e.code) && !photo.active) gear.useSlot(Number(e.code.slice(5)) - 1);
   if (e.code === "KeyX") tryDive();
 });
 window.addEventListener("keyup", (e) => keys.delete(e.code));

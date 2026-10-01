@@ -131,7 +131,7 @@ function updateExpedition(dt, t, env) {
   else if (site && journal[site.site].seen && !journal[site.relic].seen) {
     const name = JOURNAL_BY_ID[site.site].name;
     if (!owned("diving")) prompt = `You could dive on the ${name} here — with diving gear from the boatyard`;
-    else if (Math.abs(b.speed) > 1.5) prompt = `Stop over the ${name} to dive`;
+    else if (Math.abs(b.speed) > 2.5) prompt = `Stop over the ${name} to dive`;
     else prompt = `Press X to dive on the ${name}`;
   }
   promptEl.textContent = prompt;

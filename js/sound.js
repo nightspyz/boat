@@ -605,6 +605,43 @@ const sound = (() => {
     toast(muted ? "🔇 Sound off (M)" : "🔊 Sound on (M)");
   }
 
+  // --- Gear (gear.js) ---
+  // Fireworks: a rising whistle, then a deep boom (late, the farther away it bursts), an echo off the
+  // cliffs, and for some shells a crackle
+  function fwLaunch(x, z) {
+    if (!ac) return;
+    const w = place(x, z, 400);
+    tone({ type: "sine", f: 700, f2: 2400, dur: 1.6, vol: 0.02 + 0.04 * w.g, attack: 0.08, pan: w.pan });
+    burst({ type: "bandpass", f: 2600, q: 1, dur: 0.35, vol: 0.08 * Math.max(w.g, 0.3), pan: w.pan });
+  }
+  function fwBoom(x, y, z, crackle) {
+    if (!ac) return;
+    const w = place(x, z, 3000, y);
+    const g = Math.max(0.2, w.g);
+    const delay = Math.min(w.d / 340, 3);
+    burst({ type: "lowpass", f: 900, f2: 80, q: 0.7, at: delay, dur: 1.8, vol: 0.5 * g, attack: 0.004, pan: w.pan });
+    tone({ type: "sine", f: 85, f2: 32, at: delay, dur: 1.0, vol: 0.3 * g, pan: w.pan });
+    burst({ type: "lowpass", f: 450, f2: 70, at: delay + 0.55, dur: 1.6, vol: 0.12 * g, attack: 0.06, pan: -w.pan * 0.5, dest: bus.ambience });
+    if (crackle)
+      for (let i = 0; i < 18; i++)
+        burst({ type: "highpass", f: 2500 + Math.random() * 3500, at: delay + 0.5 + Math.random() * 1.6, dur: 0.04, vol: 0.05 * g, pan: w.pan + rand(-0.2, 0.2) });
+  }
+  // Fishing: the swish of a cast and the float landing; a bite; the reel clicking in
+  function fishCast() {
+    if (!ac) return;
+    burst({ type: "bandpass", f: 1800, f2: 500, q: 0.8, dur: 0.45, vol: 0.06 });
+    burst({ type: "lowpass", f: 900, f2: 250, at: 0.65, dur: 0.2, vol: 0.12 });
+  }
+  function fishBite() {
+    if (!ac) return;
+    burst({ type: "lowpass", f: 700, f2: 180, dur: 0.25, vol: 0.18 });
+    tone({ type: "sine", f: 880, at: 0.02, dur: 0.18, vol: 0.05 });
+  }
+  function fishReel() {
+    if (!ac) return;
+    for (let i = 0; i < 14; i++) burst({ type: "highpass", f: 4200, at: i * 0.06, dur: 0.02, vol: 0.05 });
+  }
+
   // Volume settings from the menu: kind is master, effects, ambience or music; v from 0 to 1
   function setVolume(kind, v) {
     vol[kind] = v;
@@ -613,7 +650,7 @@ const sound = (() => {
     else set(bus[kind].gain, LEVELS[kind] * v, 0.05);
   }
 
-  return { start, update, toggleMute, setVolume, shutter, chime, thunder, splash: splashAt, dive, blow, isMuted: () => muted };
+  return { start, update, toggleMute, setVolume, fwLaunch, fwBoom, fishCast, fishBite, fishReel, shutter, chime, thunder, splash: splashAt, dive, blow, isMuted: () => muted };
 })();
 window.addEventListener("keydown", sound.start, true);
 window.addEventListener("pointerdown", sound.start, true);

@@ -71,11 +71,53 @@ const photo = (() => {
     }
   };
 
-  const maxZoom = () => (owned("camera") ? 10 : 4);
+  // The camera drone: flies from the boat with its own camera (V). Battery recharges aboard.
+  const drone = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, battery: 180, warnedAt: -99, lowWarned: false };
+  const DRONE_BATTERY = 180;
+  const DRONE_RANGE = 200; // metres from the boat, in any direction (height counts too)
+  const droneHud = document.getElementById("drone-hud");
+
+  const maxZoom = () => (api.droneMode ? 4 : owned("camera") ? 10 : 4);
   // How far a subject can be and still make a photo: farther as you zoom in
   // (up to the subject's normal range, or 60% beyond it with the telephoto lens)
   const rangeAt = (z) => (r) => Math.min(r * (owned("camera") ? 1.6 : 1), Math.max(100, r * 0.35) * Math.pow(z, 0.85));
   const canUse = () => state.phase === "running" && !state.paused;
+
+  function lockPointer() {
+    if (canvas.requestPointerLock && !touch.active) {
+      try {
+        const p = canvas.requestPointerLock();
+        if (p && p.catch) p.catch(() => {});
+      } catch (e) {
+        // No pointer lock here: drag to look instead
+      }
+    }
+  }
+
+  function enterDrone() {
+    if (!owned("drone") || !canUse()) return;
+    if (api.active) exit();
+    if (drone.battery < 20) {
+      toast(`🔋 The drone's battery is charging (${Math.round((drone.battery / DRONE_BATTERY) * 100)}%). Try again soon.`);
+      return;
+    }
+    api.active = true;
+    api.droneMode = true;
+    boat.root.updateMatrixWorld(true);
+    const p = boat.tilt.localToWorld(eye.set(0, boatDeck(0.4) + 2.6, 0.8));
+    Object.assign(drone, { x: p.x, y: p.y, z: p.z, vx: 0, vy: 3, vz: 0, lowWarned: false });
+    const dir = camera.getWorldDirection(eye);
+    look.yaw = Math.atan2(-dir.x, -dir.z);
+    look.pitch = -0.15;
+    zoom = 1;
+    mouse.x = mouse.y = 0.5;
+    focus.id = null;
+    document.body.classList.add("photo-mode", "drone-mode");
+    ui.classList.remove("hidden");
+    toggleGallery(false);
+    lockPointer();
+    toast("🚁 Drone up! W A S D fly · E up · Q down · mouse to look · click to shoot · V to bring it back");
+  }
 
   function enter() {
     if (api.active || !canUse()) return;
@@ -91,20 +133,15 @@ const photo = (() => {
     document.body.classList.add("photo-mode");
     ui.classList.remove("hidden");
     toggleGallery(false);
-    if (canvas.requestPointerLock && !touch.active) {
-      try {
-        const p = canvas.requestPointerLock();
-        if (p && p.catch) p.catch(() => {});
-      } catch (e) {
-        // No pointer lock here: drag to look instead
-      }
-    }
+    lockPointer();
   }
 
   function exit() {
     if (!api.active) return;
     api.active = false;
-    document.body.classList.remove("photo-mode");
+    if (api.droneMode) toast("🚁 Drone back aboard, recharging");
+    api.droneMode = false;
+    document.body.classList.remove("photo-mode", "drone-mode");
     ui.classList.add("hidden");
     if (document.pointerLockElement === canvas) document.exitPointerLock();
     camera.fov = 60;
@@ -127,8 +164,89 @@ const photo = (() => {
     zoom = clamp(z, 1, maxZoom());
   }
 
+  // Flying the drone: smooth, a little floaty, kept above the sea and land and within radio range
+  function updateDrone(dt) {
+    const t = shared.uTime.value;
+    let fwd = (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) - (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0);
+    let side = (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0);
+    const up = (keys.has("KeyE") ? 1 : 0) - (keys.has("KeyQ") || keys.has("ShiftLeft") || keys.has("ShiftRight") ? 1 : 0);
+    if (touch.active) {
+      fwd = touch.throttle;
+      look.yaw += touch.turn * 1.2 * dt;
+      side = 0;
+    }
+    const SPEED = 14;
+    const fx = -Math.sin(look.yaw);
+    const fz = -Math.cos(look.yaw);
+    const rx = Math.cos(look.yaw);
+    const rz = -Math.sin(look.yaw);
+    const k = 1 - Math.exp(-dt * 2.5);
+    drone.vx += ((fx * fwd + rx * side) * SPEED - drone.vx) * k;
+    drone.vz += ((fz * fwd + rz * side) * SPEED - drone.vz) * k;
+    drone.vy += (up * 6 - drone.vy) * k;
+    drone.x += drone.vx * dt;
+    drone.y += drone.vy * dt;
+    drone.z += drone.vz * dt;
+    // Keep clear of the waves, the cliffs and the hills; a ceiling of 150 m
+    const ground = Math.max(waveHeight(drone.x, drone.z, t) + 1.5, landHeight(drone.x, drone.z) + 2.5);
+    if (drone.y < ground) {
+      drone.y = ground;
+      drone.vy = Math.max(drone.vy, 0);
+    }
+    drone.y = Math.min(drone.y, 150);
+    // Radio range
+    const b = state.boat;
+    const dx = drone.x - b.x;
+    const dy = drone.y - b.y;
+    const dz = drone.z - b.z;
+    const d = Math.hypot(dx, dy, dz);
+    if (d > DRONE_RANGE) {
+      const k = DRONE_RANGE / d;
+      drone.x = b.x + dx * k;
+      drone.y = Math.max(b.y + dy * k, ground);
+      drone.z = b.z + dz * k;
+      if (t - drone.warnedAt > 6) {
+        drone.warnedAt = t;
+        toast(`📶 Signal lost beyond ${DRONE_RANGE} m: the drone can't fly any farther from the boat.`);
+      }
+    }
+    // Battery
+    drone.battery -= dt;
+    if (drone.battery < 25 && !drone.lowWarned) {
+      drone.lowWarned = true;
+      toast("🔋 Drone battery low: bring it back soon (V).");
+    }
+    if (drone.battery <= 0) {
+      drone.battery = 0;
+      toast("🔋 Battery flat: the drone flies itself home.");
+      exit();
+      return;
+    }
+    camera.position.set(drone.x, drone.y, drone.z);
+    // A gentle hover wobble, and a lean into the direction of travel
+    const lean = (drone.vx * rx + drone.vz * rz) * 0.012;
+    euler.set(look.pitch + Math.sin(t * 1.7) * 0.003, look.yaw + Math.sin(t * 1.1) * 0.003, -lean, "YXZ");
+    camera.quaternion.setFromEuler(euler);
+    edgeTurn(dt);
+    look.speed *= Math.exp(-dt * 6);
+    if (focus.id && t > focus.until) focus.id = null;
+  }
+  // Without pointer lock, holding the cursor near a screen edge keeps turning that way
+  function edgeTurn(dt) {
+    if (document.pointerLockElement !== canvas && !touch.active) {
+      const ex = mouse.x < 0.06 ? -1 : mouse.x > 0.94 ? 1 : 0;
+      const ey = mouse.y < 0.06 ? -1 : mouse.y > 0.94 ? 1 : 0;
+      if (ex || ey) addLook(ex * 500 * dt, ey * 300 * dt);
+    }
+  }
+  // Recharging aboard while the drone isn't flying (called every frame from update below)
+  function chargeDrone(dt) {
+    if (!api.droneMode) drone.battery = Math.min(DRONE_BATTERY, drone.battery + dt * 0.5);
+  }
+
   // Called from updateCamera: stand on the foredeck, rocking with the boat
   function updateView(dt) {
+    if (api.droneMode) return updateDrone(dt);
     const b = state.boat;
     boat.root.updateMatrixWorld(true);
     eye.set(BOAT_EYE.x, BOAT_EYE.y, BOAT_EYE.z);
@@ -144,12 +262,7 @@ const photo = (() => {
     euler.set(look.pitch, b.yaw + look.yaw, 0, "YXZ");
     qLevel.setFromEuler(euler);
     camera.quaternion.copy(qLevel).slerp(qBoat, 0.55);
-    // Without pointer lock, holding the cursor near a screen edge keeps turning that way
-    if (document.pointerLockElement !== canvas && !touch.active) {
-      const ex = mouse.x < 0.06 ? -1 : mouse.x > 0.94 ? 1 : 0;
-      const ey = mouse.y < 0.06 ? -1 : mouse.y > 0.94 ? 1 : 0;
-      if (ex || ey) addLook(ex * 500 * dt, ey * 300 * dt);
-    }
+    edgeTurn(dt);
     look.speed *= Math.exp(-dt * 6);
     if (focus.id && t > focus.until) focus.id = null;
   }
@@ -183,29 +296,32 @@ const photo = (() => {
     const b = state.boat;
     const dark = 1 - clamp(lastEnv.lightLevel, 0, 1); // slower shutter in low light: shake shows more
     const centred = f.p ? clamp(1 - f.off / 1.1, 0, 1) : 1;
-    const dist = f.s.pos ? Math.hypot(f.s.pos.x - b.x, f.s.pos.z - b.z) : 0;
+    const vp = api.droneMode ? camera.position : b; // where the picture is taken from
+    const dist = f.s.pos ? Math.hypot(f.s.pos.x - vp.x, f.s.pos.z - vp.z) : 0;
+    const moving = api.droneMode ? Math.hypot(drone.vx, drone.vz) * 0.8 : Math.abs(b.speed);
     // How big it looks in the frame: zooming in makes it look closer
     const fill = f.s.pos ? clamp(1.3 - dist / zoom / Math.max(100, f.s.range * 0.35), 0, 1) : 1;
     // Long lenses magnify shake a little too
-    const steady = clamp(1 - (Math.abs(b.speed) / 16 + look.speed * 1.5) * (1 + 1.5 * dark) * (1 + 0.05 * zoom), 0, 1);
+    const steady = clamp(1 - (moving / 16 + look.speed * 1.5) * (1 + 1.5 * dark) * (1 + 0.05 * zoom), 0, 1);
     const focused = !f.s.pos || focus.id === f.s.id ? 1 : 0.5;
     const q = 0.3 * centred + 0.3 * fill + 0.2 * steady + 0.2 * focused;
-    if (q >= 0.82) return { name: "Excellent", mult: 1.3 };
-    if (q >= 0.65) return { name: "Good", mult: 1 };
-    if (q >= 0.45) return { name: "Okay", mult: 0.8 };
-    return { name: "Poor", mult: 0.5 };
+    if (q >= 0.82) return { name: "Excellent", mult: 1.8 };
+    if (q >= 0.65) return { name: "Good", mult: 1.2 };
+    if (q >= 0.45) return { name: "Okay", mult: 0.7 };
+    return { name: "Poor", mult: 0.35 };
   }
 
   function shoot() {
     if (!api.active || !canUse()) return;
     sound.shutter();
-    lcd.classList.add("snap");
-    setTimeout(() => lcd.classList.remove("snap"), 90);
+    const snapEl = api.droneMode ? droneHud : lcd;
+    snapEl.classList.add("snap");
+    setTimeout(() => snapEl.classList.remove("snap"), 90);
     shotsToday++;
     const frame = inFrame();
     let earned = 0;
     let main = null;
-    const b = state.boat;
+    const b = api.droneMode ? camera.position : state.boat; // where it was taken from
     const when = { day: expedition.day, time: formatClock(state.timeOfDay) };
     for (const f of frame) {
       const id = f.s.id;
@@ -292,6 +408,7 @@ const photo = (() => {
     }
     const W = window.innerWidth;
     const H = window.innerHeight;
+    if (api.droneMode) return renderDrone(W, H);
     wideCam.aspect = W / H;
     wideCam.updateProjectionMatrix();
     wideCam.position.copy(camera.position);
@@ -329,6 +446,52 @@ const photo = (() => {
       pendingShot = null;
     }
     updateLcd(r);
+  }
+
+  function renderDrone(W, H) {
+    camera.fov = 70 / zoom;
+    camera.aspect = W / H;
+    camera.updateProjectionMatrix();
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, W, H);
+    renderer.render(scene, camera);
+    if (pendingShot) {
+      // The picture: the middle of the screen, in 3:2
+      try {
+        const pr = renderer.getPixelRatio();
+        const cw = Math.min(W, H * 1.5);
+        const ch = cw / 1.5;
+        const c = document.createElement("canvas");
+        c.width = 420;
+        c.height = 280;
+        c.getContext("2d").drawImage(renderer.domElement, ((W - cw) / 2) * pr, ((H - ch) / 2) * pr, cw * pr, ch * pr, 0, 0, 420, 280);
+        pendingShot.img = c.toDataURL("image/jpeg", 0.72);
+      } catch (e) {
+        pendingShot.img = null;
+      }
+      photos.push(pendingShot);
+      savePhotos();
+      if (!journalEl.classList.contains("hidden")) renderJournal();
+      showCard(pendingShot);
+      pendingShot = null;
+    }
+    // The drone's screen readouts
+    const b = state.boat;
+    const alt = drone.y - Math.max(waveHeight(drone.x, drone.z, shared.uTime.value), landHeight(drone.x, drone.z));
+    const dist = Math.hypot(drone.x - b.x, drone.y - b.y, drone.z - b.z);
+    const pct = Math.round((drone.battery / DRONE_BATTERY) * 100);
+    const target = focus.id && inFrame().find((f) => f.s.id === focus.id && f.p);
+    if (focus.id && !target) focus.id = null;
+    droneHud.querySelector(".dh-read").innerHTML =
+      `<span>ALT ${Math.round(alt)} m</span>` +
+      `<span class="${dist > DRONE_RANGE * 0.85 ? "low" : ""}">📶 ${Math.round(dist)} / ${DRONE_RANGE} m</span>` +
+      `<span>SPD ${Math.round(Math.hypot(drone.vx, drone.vz) * 3.6)} km/h</span><span>${zoom.toFixed(1)}×</span>` +
+      `<span class="${pct < 15 ? "low" : ""}">🔋 ${pct}%</span>`;
+    droneHud.querySelector(".dh-af").textContent = target ? `AF ● ${JOURNAL_BY_ID[focus.id].name}` : "AF · R to focus";
+    const br = droneHud.querySelector(".dh-focus");
+    br.classList.toggle("locked", !!target);
+    br.style.left = target ? `${((target.p.x + 1) / 2) * 100}%` : "50%";
+    br.style.top = target ? `${((1 - target.p.y) / 2) * 100}%` : "50%";
   }
 
   // Keep the zoomed camera matched to the LCD, and refresh the readouts
@@ -403,6 +566,9 @@ const photo = (() => {
 
   const api = {
     active: false,
+    droneMode: false,
+    enterDrone,
+    chargeDrone,
     wasLocked: false,
     enter,
     exit,

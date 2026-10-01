@@ -1322,9 +1322,9 @@ body.photo-mode #touch-buttons {
 /* ===== Keyboard controls card (title, briefing and pause screens) ===== */
 #overlay .hint.controls {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px 22px;
-  width: min(1000px, calc(100% - 32px));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px 18px;
+  width: min(1180px, calc(100% - 32px));
   margin-top: 6px;
   padding: 14px 20px;
   border-radius: 14px;
@@ -1383,4 +1383,193 @@ kbd {
   #overlay .hint.controls {
     display: none;
   }
+}
+
+/* ===== Inventory bar (gear.js) ===== */
+#hotbar {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 14px;
+  background: rgba(8, 24, 36, 0.6);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+  z-index: 4;
+}
+#hotbar .slot {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  background: linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03));
+  color: #fff;
+  cursor: pointer;
+  font: 11px system-ui, sans-serif;
+  touch-action: none;
+  transition: transform 0.1s, border-color 0.15s;
+}
+#hotbar .slot:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+.slot-icon {
+  font-size: 24px;
+  line-height: 1.1;
+}
+.slot-name {
+  margin-top: 2px;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+.slot-num,
+.slot-key {
+  position: absolute;
+  top: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  opacity: 0.7;
+}
+.slot-num {
+  left: 5px;
+}
+.slot-key {
+  right: 5px;
+  padding: 0 3px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 3px;
+}
+#hotbar .slot.locked {
+  opacity: 0.4;
+  filter: grayscale(1);
+}
+#hotbar .slot.on {
+  border-color: #7fd1b9;
+  background: rgba(47, 127, 108, 0.55);
+}
+#hotbar .slot.alert {
+  border-color: #ffd166;
+  animation: slot-pulse 0.35s ease-in-out infinite alternate;
+}
+#hotbar .slot.dim .slot-icon {
+  opacity: 0.45;
+}
+@keyframes slot-pulse {
+  to {
+    transform: scale(1.08);
+    background: rgba(255, 209, 102, 0.45);
+  }
+}
+@media (max-width: 700px), (pointer: coarse) {
+  #hotbar {
+    bottom: auto;
+    top: 52px;
+    gap: 4px;
+    padding: 4px;
+  }
+  #hotbar .slot {
+    width: 46px;
+    height: 46px;
+  }
+  .slot-name,
+  .slot-num,
+  .slot-key {
+    display: none;
+  }
+}
+
+/* ===== Drone camera (photo.js) ===== */
+#drone-hud {
+  display: none;
+  position: absolute;
+  inset: 0;
+  color: #fff;
+  font: 600 13px ui-monospace, monospace;
+  text-shadow: 0 1px 2px #000;
+}
+body.drone-mode #drone-hud {
+  display: block;
+}
+body.drone-mode #cam-body {
+  display: none;
+}
+body.drone-mode .cam-only,
+body:not(.drone-mode) .drone-only {
+  display: none;
+}
+#drone-hud.snap {
+  background: rgba(255, 255, 255, 0.5);
+}
+.dh-frame {
+  position: absolute;
+  inset: 8% 6%;
+  --c: rgba(255, 255, 255, 0.8);
+  background: linear-gradient(var(--c) 0 0) top left / 40px 2px no-repeat, linear-gradient(var(--c) 0 0) top left / 2px 40px no-repeat,
+    linear-gradient(var(--c) 0 0) top right / 40px 2px no-repeat, linear-gradient(var(--c) 0 0) top right / 2px 40px no-repeat,
+    linear-gradient(var(--c) 0 0) bottom left / 40px 2px no-repeat, linear-gradient(var(--c) 0 0) bottom left / 2px 40px no-repeat,
+    linear-gradient(var(--c) 0 0) bottom right / 40px 2px no-repeat, linear-gradient(var(--c) 0 0) bottom right / 2px 40px no-repeat;
+}
+.dh-top {
+  position: absolute;
+  top: calc(8% + 10px);
+  left: calc(6% + 14px);
+  right: calc(6% + 14px);
+  display: flex;
+  gap: 18px;
+}
+.dh-rec {
+  color: #ff4d4d;
+  animation: rec-blink 1s steps(2) infinite;
+}
+@keyframes rec-blink {
+  50% {
+    opacity: 0.2;
+  }
+}
+.dh-af {
+  margin-left: auto;
+}
+.dh-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  background: linear-gradient(#fff 0 0) center / 26px 1px no-repeat, linear-gradient(#fff 0 0) center / 1px 26px no-repeat;
+  opacity: 0.8;
+}
+.dh-focus {
+  position: absolute;
+  width: 64px;
+  height: 46px;
+  margin: -23px 0 0 -32px;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  border-radius: 4px;
+}
+.dh-focus.locked {
+  border-color: #4cff7a;
+}
+.dh-read {
+  position: absolute;
+  left: 50%;
+  bottom: calc(8% + 10px);
+  transform: translateX(-50%);
+  display: flex;
+  gap: 18px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+}
+.dh-read .low {
+  color: #ff6b5a;
 }

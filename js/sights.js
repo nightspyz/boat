@@ -556,6 +556,7 @@ function updateSights(dt, t, env) {
   updateRainbow();
   updateGlowPlankton(dt, t, env);
   updateOffshore(dt, t, env); // offshore.js
+  updateCoastLife(dt, t, env); // coastlife.js
 }
 
 // What of all this can be seen right now (called from currentSightings in discovery.js)
@@ -573,4 +574,5 @@ function addSights(add, env) {
   if (rainbow.strength > 0.35) add("rainbow", rainbow.top.clone(), Infinity, { lit: true });
   if (glowActive > 80) add("biolum", null, Infinity);
   addOffshoreSights(add, env); // offshore.js
+  addCoastLifeSights(add, env); // coastlife.js
 }

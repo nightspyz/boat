@@ -102,7 +102,7 @@ function loop(now) {
     }
 
     updateWeather(dt, active);
-    updateBoat(dt, waveTime, active);
+    updateBoat(dt, waveTime, active && !photo.droneMode); // (the boat drifts while you fly the drone)
     const env = applyEnvironment(state.timeOfDay);
     updateDolphins(dt, waveTime);
     updateWhale(dt, waveTime);
@@ -111,6 +111,8 @@ function loop(now) {
     updateReef();
     updateLandmarks(dt, waveTime, env);
     updateSights(dt, waveTime, env);
+    gear.update(dt, waveTime, env);
+    photo.chargeDrone(dt);
     updateSplashes(dt);
     splashMat.color.setScalar(0.3 + 0.7 * env.lightLevel);
     updateBirds(dt, waveTime, env.light);

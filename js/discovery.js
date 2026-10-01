@@ -86,9 +86,9 @@ function currentSightings(env) {
   if (flight.active) add("airliner", airplane.group.position.clone(), 2600, { lit: true });
 
   // Boats, the sightseeing plane, and people at the cove
-  const LIT_SHIPS = { ferry: true, tanker: true, coastguard: true };
-  const SHIP_RANGE = { sailboat: 1000, tourboat: 900, ferry: 1800, tanker: 2400, coastguard: 1300 };
-  const SHIP_ID = { sailboat: "sailboats", tourboat: "tourboat", ferry: "ferry", tanker: "tanker", coastguard: "coastguard" };
+  const LIT_SHIPS = { ferry: true, tanker: true, coastguard: true, cruise: true, cargo: true };
+  const SHIP_RANGE = { sailboat: 1000, tourboat: 900, ferry: 1800, tanker: 2400, coastguard: 1300, cruise: 2600, cargo: 2500 };
+  const SHIP_ID = { sailboat: "sailboats", tourboat: "tourboat", ferry: "ferry", tanker: "tanker", coastguard: "coastguard", cruise: "cruise", cargo: "cargoship" };
   for (const v of vessels) {
     add(SHIP_ID[v.type], at(v.x, v.type === "tanker" ? 10 : 3, v.z), SHIP_RANGE[v.type], { lit: !!LIT_SHIPS[v.type] });
   }
@@ -118,6 +118,7 @@ function currentSightings(env) {
   if (wx.storm > 0.5) add("storm", null, Infinity);
   if (wx.fog > 0.6) add("fog", null, Infinity);
   addSights(add, env); // orcas, shark, manta, pelicans, balloon, rainbow… (sights.js)
+  gear.addSightings(add); // fireworks bursting (gear.js)
   // Things washed up on the beaches after a storm
   for (const w of washedUp) if (w.g.visible) add(w.id, w.g.position.clone().setY(w.g.position.y + 0.5), 110, FOG);
   return list;
@@ -125,7 +126,7 @@ function currentSightings(env) {
 
 function inRange(s, rangeFn = (r) => r) {
   if (!s.pos) return true;
-  const b = state.boat;
+  const b = photo.droneMode ? camera.position : state.boat; // the drone sees from where it flies
   const dist = s.id === "airliner" ? s.pos.distanceTo(camera.position) : Math.hypot(s.pos.x - b.x, s.pos.z - b.z);
   // Optics change the range, but nothing sees through the haze; in fog, only lights carry farther
   const hazed = s.fog || (wx.fog > 0.2 && !s.lit);
@@ -203,9 +204,9 @@ function discover(id) {
   if (journal[id].seen) return;
   journal[id].seen = true;
   expedition.newFinds.push(id);
-  expedition.discoveryEarnings += entry.value;
+  expedition.discoveryEarnings += discoveryValue(entry);
   sound.chime("discovery");
-  toast(`📓 New in your journal: ${entry.name}${entry.value ? ` +$${entry.value}` : ""}`, "discovery");
+  toast(`📓 New in your journal: ${entry.name}${discoveryValue(entry) ? ` +$${discoveryValue(entry)}` : ""}`, "discovery");
   if (id === "glow") toast("Something is down there, glinting… out of reach for now.");
   if (CLUES[id]) toast(CLUES[id], "goal");
   checkGoal("discover", id);
@@ -321,7 +322,7 @@ function tryDive() {
     toast("🤿 You haven't found anything here yet. Look for it first.");
     return;
   }
-  if (Math.abs(b.speed) > 1.5) {
+  if (Math.abs(b.speed) > 2.5) {
     toast("🤿 Slow down and stop over the site first.");
     return;
   }

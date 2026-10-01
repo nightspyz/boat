@@ -1,6 +1,6 @@
 # Game State
 
-_Version 3.3 · last updated 2026-10-01_
+_Version 3.6 · last updated 2026-10-01_
 
 Each download is named with its version (`coastline-v1.0.zip`, `coastline-v1.1.zip`, …).
 
@@ -83,12 +83,14 @@ The core loop and the upgrade loop are playable and saved between sessions. The 
 | `js/traffic.js` | Sea and air traffic |
 | `js/sights.js` | Extra photo subjects: orcas, blue shark, manta ray, cormorants, pelicans, fishing trawler with gulls, hot-air balloon, stranded coaster, rainbow, glowing plankton |
 | `js/offshore.js` | Jellyfish swarms, floating debris, navigation buoys and a weather buoy, the offshore oil rig, wind turbines (offshore farm + eastern hills); SEA_OBSTACLES for boat collisions |
+| `js/coastlife.js` | Beach camps (tents, campfires with people at night), horse riders on the harbor beach, shooting stars (showers every third night), a comet some nights |
 | `js/expedition.js` | Journal entries, daily tasks, money, boatyard, saving, briefing and summary screens |
 | `js/discovery.js` | Toasts, spotting and photographing (visibility rules), journal screen, sonar and diving |
 | `js/hud.js` | Photo highlights, minimap, touch controls |
 | `js/photo.js` | Camera mode: first-person view from the foredeck, zoom, focus, shot quality, gallery |
 | `js/menu.js` | Esc settings menu: volumes, boat speed, time speed, weather override (settings, WEATHER_PRESETS) |
 | `js/journal.js` | The photo journal (J): a two-page book with section tabs, your best photo of each subject, facts, other shots, notes, location chart, conditions |
+| `js/gear.js` | Boat gear: fishing rod (Q), searchlight (L), fireworks (K), and the inventory bar (1–6). The camera drone (V) is a mode in photo.js |
 | `js/sound.js` | All sound, synthesized with the Web Audio API |
 | `js/main.js` | Rendering, title screen, main loop (must load last) |
 | `assets/` | Unused so far (everything is procedural) |

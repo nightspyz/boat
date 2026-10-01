@@ -71,6 +71,7 @@ const waterUniforms = Object.assign({}, shared, {
   uBoatLightPos: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) },
   uBoatLightColor: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) },
   uBoatSpotDir: { value: new THREE.Vector3(0, 0, -1) },
+  uSpotRange: { value: 60 }, // how far the searchlight reaches across the water (gear.js)
   uStacks: { value: Array.from({ length: 16 }, () => new THREE.Vector4(0, 0, 0, 0)) }, // x, z, radius, active
 });
 
@@ -243,6 +244,7 @@ const water = new THREE.Mesh(
       uniform vec3 uBoatLightPos[5];
       uniform vec3 uBoatLightColor[5];
       uniform vec3 uBoatSpotDir;
+      uniform float uSpotRange;
       uniform vec4 uStacks[16];
       varying vec3 vWorld;
       varying vec3 vNormal;
@@ -438,7 +440,7 @@ const water = new THREE.Mesh(
           vec3 L = uBoatLightPos[i] - vWorld;
           float ld = length(L);
           L /= ld;
-          float range = i == 4 ? 60.0 : 14.0;
+          float range = i == 4 ? uSpotRange : 14.0;
           float att = 1.0 - smoothstep(0.0, range, ld);
           att *= att;
           if (i == 4) att *= smoothstep(0.82, 0.95, dot(-L, uBoatSpotDir));

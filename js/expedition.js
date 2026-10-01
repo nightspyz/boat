@@ -43,6 +43,11 @@ const JOURNAL = [
   { id: "coastguard", cat: "People & boats", name: "Coast guard patrol" },
   { id: "smallplane", cat: "People & boats", name: "Sightseeing plane" },
   { id: "trawler", cat: "People & boats", name: "Fishing trawler" },
+  { id: "cruise", cat: "People & boats", name: "Cruise liner" },
+  { id: "cargoship", cat: "People & boats", name: "Container ship" },
+  { id: "tents", cat: "People & boats", name: "Beach camp" },
+  { id: "campfire", cat: "People & boats", name: "Campfire on the beach" },
+  { id: "horses", cat: "People & boats", name: "Horse riders" },
   { id: "balloon", cat: "People & boats", name: "Hot-air balloon" },
   { id: "buoys", cat: "People & boats", name: "Channel buoys" },
   { id: "databuoy", cat: "People & boats", name: "Weather buoy" },
@@ -81,6 +86,14 @@ const JOURNAL = [
   { id: "rain", cat: "Sky & weather", name: "Rain at sea" },
   { id: "storm", cat: "Sky & weather", name: "Storm" },
   { id: "fog", cat: "Sky & weather", name: "Fog bank" },
+  { id: "fireworks", cat: "Sky & weather", name: "Fireworks over the bay" },
+  { id: "meteor", cat: "Sky & weather", name: "Shooting star" },
+  { id: "comet", cat: "Sky & weather", name: "Comet" },
+  { id: "mackerel", cat: "Catches", name: "Mackerel" },
+  { id: "seabass", cat: "Catches", name: "Sea bass" },
+  { id: "mullet", cat: "Catches", name: "Red mullet" },
+  { id: "squid", cat: "Catches", name: "Squid" },
+  { id: "tuna", cat: "Catches", name: "Bluefin tuna" },
   { id: "rainbow", cat: "Sky & weather", name: "Rainbow" },
 ];
 const JOURNAL_BY_ID = Object.fromEntries(JOURNAL.map((e) => [e.id, e]));
@@ -100,11 +113,15 @@ const JOURNAL_VALUES = {
   airliner: 60, sunset: 80, stars: 80, aurora: 300, rain: 60, storm: 150, fog: 100,
   crate: 150, bottle: 250, amphora: 400,
   orcas: 450, shark: 250, manta: 300, cormorants: 120, pelicans: 150, beachwreck: 250, trawler: 100, balloon: 200,
-  biolum: 400, rainbow: 250,
+  biolum: 400, rainbow: 250, fireworks: 120,
+  cruise: 120, cargoship: 100, tents: 40, campfire: 120, horses: 150, meteor: 250, comet: 400,
+  mackerel: 40, seabass: 70, mullet: 90, squid: 110, tuna: 350,
   jellyfish: 180, buoys: 50, databuoy: 150, flotsam: 40, oilrig: 250, windfarm: 200, windmills: 120,
 };
 for (const e of JOURNAL) e.value = JOURNAL_VALUES[e.id] || 0;
-const photoValue = (entry) => Math.round(entry.value * 0.5);
+// Finding something pays a little; a good photo of it pays well (× the photo's quality, see photo.js)
+const discoveryValue = (entry) => Math.round((entry.value * 0.3) / 5) * 5;
+const photoValue = (entry) => Math.round(entry.value * 1.2);
 const journal = Object.fromEntries(JOURNAL.map((e) => [e.id, { seen: false, photo: false }]));
 
 // ===== Expeditions (the only way to earn money) =====
@@ -451,6 +468,10 @@ const UPGRADES = [
   { id: "hull", icon: "🛡️", name: "Reinforced hull", price: 1000, desc: "Full speed and normal fuel use in rough seas and storms." },
   { id: "sonar", icon: "📡", name: "Sonar", price: 1200, desc: "Pings underwater contacts nearby, even ones too deep to see." },
   { id: "diving", icon: "🤿", name: "Diving gear", price: 1500, desc: "Dive on underwater sites (press X when stopped) to recover relics." },
+  { id: "rod", icon: "🎣", name: "Fishing rod", price: 300, desc: "Stop and cast (Q); strike when the float dips. Every catch sells at the harbor." },
+  { id: "searchlight", icon: "🔦", name: "Searchlight", price: 450, desc: "A powerful beam (L) that points wherever you look. Light up the night." },
+  { id: "fireworks", icon: "🎆", name: "Fireworks", price: 400, desc: "Launch fireworks from the boat at night (K): five kinds of shells." },
+  { id: "drone", icon: "🚁", name: "Camera drone", price: 1800, desc: "Fly a camera drone from the boat (V): photograph from above, up to 200 m from the boat." },
 ];
 const upgrades = new Set();
 const owned = (id) => upgrades.has(id);
@@ -641,6 +662,7 @@ function buyUpgrade(id) {
   saveGame();
   sound.chime("buy");
   toast(`${u.icon} ${u.name} fitted to your boat!`, "goal");
+  gear.refresh();
   renderShop();
 }
 
@@ -682,6 +704,7 @@ function beginExpedition() {
     discoveryEarnings: 0,
     photoEarnings: 0,
     relicEarnings: 0,
+    fishEarnings: 0,
     newFinds: [],
     lastX: state.boat.x,
     lastZ: state.boat.z,
@@ -748,6 +771,7 @@ function endExpedition(towed) {
     ["📷 New photos", expedition.photoEarnings],
   ];
   if (expedition.relicEarnings) lines.push(["🏺 Relics", expedition.relicEarnings]);
+  if (expedition.fishEarnings) lines.push(["🎣 Fish sold", expedition.fishEarnings]);
   lines.push([expedition.goalDone ? `★ Task: ${expedition.goal.title}` : "★ Task not completed", reward]);
   const earned = lines.reduce((sum, [, v]) => sum + v, 0);
   if (towed && earned) lines.push(["Tow fee (30%)", -Math.round(earned * 0.3)]);

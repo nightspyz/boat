@@ -28,7 +28,7 @@
     <div id="overlay">
       <div id="overlay-title">Press Space to start</div>
       <div id="overlay-body"></div>
-      <div class="hint controls"><div class="key-group"><h4>⛵ Sailing</h4><div class="key-row"><span class="keys"><kbd>W</kbd><kbd>S</kbd></span><span>Throttle</span></div><div class="key-row"><span class="keys"><kbd>A</kbd><kbd>D</kbd></span><span>Steer</span></div><div class="key-row"><span class="keys"><kbd>E</kbd></span><span>Dock at the harbor</span></div><div class="key-row"><span class="keys"><kbd>X</kbd></span><span>Dive</span></div><div class="key-row"><span class="keys"><kbd>T</kbd><i>hold</i></span><span>Speed up time</span></div></div><div class="key-group"><h4>📷 Camera</h4><div class="key-row"><span class="keys"><kbd>F</kbd></span><span>Raise camera</span></div><div class="key-row"><span class="keys"><kbd>Click</kbd>/<kbd>F</kbd></span><span>Take photo</span></div><div class="key-row"><span class="keys"><kbd>Wheel</kbd></span><span>Zoom</span></div><div class="key-row"><span class="keys"><kbd>R</kbd></span><span>Focus</span></div><div class="key-row"><span class="keys"><kbd>Right click</kbd></span><span>Put camera down</span></div></div><div class="key-group"><h4>🗺️ Journal & map</h4><div class="key-row"><span class="keys"><kbd>J</kbd></span><span>Photo journal</span></div><div class="key-row"><span class="keys"><kbd>Tab</kbd></span><span>All photos</span></div><div class="key-row"><span class="keys"><kbd>G</kbd></span><span>Map</span></div><div class="key-row"><span class="keys"><kbd>B</kbd></span><span>Boatyard (in port)</span></div></div><div class="key-group"><h4>⚙️ Game</h4><div class="key-row"><span class="keys"><kbd>Drag</kbd></span><span>Look around</span></div><div class="key-row"><span class="keys"><kbd>C</kbd></span><span>Camera behind boat</span></div><div class="key-row"><span class="keys"><kbd>M</kbd></span><span>Sound on / off</span></div><div class="key-row"><span class="keys"><kbd>Space</kbd></span><span>Pause</span></div><div class="key-row"><span class="keys"><kbd>Esc</kbd></span><span>Settings</span></div></div></div>
+      <div class="hint controls"><div class="key-group"><h4>⛵ Sailing</h4><div class="key-row"><span class="keys"><kbd>W</kbd><kbd>S</kbd></span><span>Throttle</span></div><div class="key-row"><span class="keys"><kbd>A</kbd><kbd>D</kbd></span><span>Steer</span></div><div class="key-row"><span class="keys"><kbd>E</kbd></span><span>Dock at the harbor</span></div><div class="key-row"><span class="keys"><kbd>X</kbd></span><span>Dive</span></div><div class="key-row"><span class="keys"><kbd>T</kbd><i>hold</i></span><span>Speed up time</span></div></div><div class="key-group"><h4>📷 Camera</h4><div class="key-row"><span class="keys"><kbd>F</kbd></span><span>Raise camera</span></div><div class="key-row"><span class="keys"><kbd>Click</kbd>/<kbd>F</kbd></span><span>Take photo</span></div><div class="key-row"><span class="keys"><kbd>Wheel</kbd></span><span>Zoom</span></div><div class="key-row"><span class="keys"><kbd>R</kbd></span><span>Focus</span></div><div class="key-row"><span class="keys"><kbd>Right click</kbd></span><span>Put camera down</span></div></div><div class="key-group"><h4>🗺️ Journal & map</h4><div class="key-row"><span class="keys"><kbd>J</kbd></span><span>Photo journal</span></div><div class="key-row"><span class="keys"><kbd>Tab</kbd></span><span>All photos</span></div><div class="key-row"><span class="keys"><kbd>G</kbd></span><span>Map</span></div><div class="key-row"><span class="keys"><kbd>B</kbd></span><span>Boatyard (in port)</span></div></div><div class="key-group"><h4>🧰 Gear</h4><div class="key-row"><span class="keys"><kbd>1</kbd>–<kbd>6</kbd></span><span>Inventory bar</span></div><div class="key-row"><span class="keys"><kbd>V</kbd></span><span>Fly the drone</span></div><div class="key-row"><span class="keys"><kbd>Q</kbd></span><span>Cast / strike</span></div><div class="key-row"><span class="keys"><kbd>L</kbd></span><span>Searchlight</span></div><div class="key-row"><span class="keys"><kbd>K</kbd></span><span>Fireworks</span></div></div><div class="key-group"><h4>⚙️ Game</h4><div class="key-row"><span class="keys"><kbd>Drag</kbd></span><span>Look around</span></div><div class="key-row"><span class="keys"><kbd>C</kbd></span><span>Camera behind boat</span></div><div class="key-row"><span class="keys"><kbd>M</kbd></span><span>Sound on / off</span></div><div class="key-row"><span class="keys"><kbd>Space</kbd></span><span>Pause</span></div><div class="key-row"><span class="keys"><kbd>Esc</kbd></span><span>Settings</span></div></div></div>
     </div>
     <div id="photo-ui" class="hidden">
       <div id="cam-body">
@@ -50,19 +50,30 @@
         </div>
         <div class="cb-bottom" id="cam-read"></div>
       </div>
+      <div id="drone-hud">
+        <div class="dh-frame"></div>
+        <div class="dh-top"><span class="dh-rec">● REC</span><span>🚁 DRONE</span><span class="dh-af"></span></div>
+        <div class="dh-center"></div>
+        <div class="dh-focus"></div>
+        <div class="dh-read"></div>
+      </div>
       <div id="cam-help">
-        <b>Camera</b>
+        <b class="cam-only">Camera</b><b class="drone-only">Drone</b>
         <div>Mouse / drag · look</div>
         <div>Click / F · shoot</div>
         <div>Wheel / + − · zoom</div>
         <div>R · focus</div>
-        <div>Tab · gallery</div>
-        <div>Right click / E / Esc · put down</div>
+        <div class="drone-only">W A S D · fly</div>
+        <div class="drone-only">E / Q · up / down</div>
+        <div class="cam-only">Tab · gallery</div>
+        <div class="cam-only">Right click / E / Esc · put down</div>
+        <div class="drone-only">V / Esc · bring it back</div>
         <div class="cam-touch"><button data-cam="gallery">🖼️ Gallery</button><button data-cam="exit">✕ Exit</button></div>
       </div>
       <div id="cam-card" class="hidden"></div>
     </div>
     <div id="gallery" class="hidden"></div>
+    <div id="hotbar" class="hidden"></div>
     <div id="menu" class="hidden"><div class="menu-panel"></div></div>
     <div id="journal" class="hidden"></div>
     <div id="bigmap" class="hidden"><canvas id="bigmap-canvas"></canvas><div class="bigmap-hint">G or tap to close</div></div>
@@ -101,11 +112,13 @@
   <script src="js/traffic.js"></script>
   <script src="js/sights.js"></script>
   <script src="js/offshore.js"></script>
+  <script src="js/coastlife.js"></script>
   <script src="js/expedition.js"></script>
   <script src="js/discovery.js"></script>
   <script src="js/hud.js"></script>
   <script src="js/photo.js"></script>
   <script src="js/journal.js"></script>
+  <script src="js/gear.js"></script>
   <script src="js/sound.js"></script>
   <script src="js/menu.js"></script>
   <script src="js/main.js"></script>

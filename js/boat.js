@@ -392,7 +392,9 @@ function updateBoat(dt, t, controllable) {
   b.throttle = throttle;
 
   b.speed += throttle * ACCEL * settings.boatSpeed * dt; // (boat speed: menu.js)
-  b.speed -= b.speed * DRAG * dt;
+  // Water drag; with the throttle off the hull settles quickly, and the last bit of way comes off fast
+  b.speed -= b.speed * (throttle === 0 ? 1.4 : DRAG) * dt;
+  if (throttle === 0 && Math.abs(b.speed) < 1.5) b.speed *= Math.exp(-3 * dt);
   // In rough seas an ordinary hull has to slow down; the reinforced hull keeps full speed
   const topSpeed = (owned("hull") ? MAX_FORWARD : MAX_FORWARD * (1 - 0.45 * wx.storm)) * settings.boatSpeed;
   b.speed = clamp(b.speed, MAX_REVERSE * settings.boatSpeed, topSpeed);

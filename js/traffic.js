@@ -97,6 +97,67 @@ function buildTanker() {
   return { group: g, light: mastLight(g, 0, 22, 62), windows };
 }
 
+// A big white cruise liner: tiers of decks with rows of lit windows, lifeboats, a broad funnel
+function buildCruise() {
+  const g = new THREE.Group();
+  const white = hazeMat(0xf6f5f0);
+  g.add(new THREE.Mesh(hullGeometry(150, 26, 10, 6), hazeMat(0x1d2f52)));
+  g.add(box(25.5, 3, 140, white, 0, 5.5, 2)); // white upper hull
+  const windows = glowMat(0xffe3b0);
+  const tiers = [
+    [24, 4, 118, 9],
+    [22, 4, 108, 13],
+    [20, 4, 96, 17],
+    [17, 3.5, 70, 20.75],
+  ];
+  for (const [w, h, d, y] of tiers) {
+    g.add(box(w, h, d, white, 0, y, 6));
+    g.add(box(w + 0.2, 1, d - 2, windows, 0, y + 0.3, 6));
+  }
+  g.add(box(25.7, 0.8, 136, windows, 0, 5.5, 2)); // portholes along the hull
+  g.add(box(14, 3, 12, hazeMat(0x2b4a7a), 0, 24.5, -36)); // the bridge, up front
+  g.add(box(14.2, 1, 12.2, windows, 0, 24.8, -36));
+  g.add(box(9, 0.4, 16, hazeMat(0x3fb7d9), 0, 22.7, 22)); // pool on the top deck
+  const funnel = box(7, 9, 12, hazeMat(0xc0392b), 0, 28, 40);
+  g.add(funnel, box(7.2, 2, 12.2, hazeMat(0x1d2f52), 0, 33.4, 40));
+  const orange = hazeMat(0xf08a24);
+  for (const side of [-1, 1]) for (let k = 0; k < 10; k++) g.add(box(2.4, 2.2, 7, orange, side * 12.6, 11.5, -40 + k * 9));
+  return { group: g, light: mastLight(g, 0, 31, -36), windows };
+}
+
+// A container ship stacked with colourful boxes (one instanced mesh for all the containers)
+function buildCargo() {
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(hullGeometry(170, 28, 11, 8), hazeMat(0x8a2a24)));
+  g.add(box(27.5, 3, 160, hazeMat(0x1d2a3a), 0, 2.2, 0)); // dark blue topsides
+  const colors = [0xb83a2e, 0x2f6aa8, 0x3f8f4a, 0xe08a2c, 0x8e9499, 0xe6c64a, 0x6b3e8a, 0xf2f2ee];
+  const slots = [];
+  for (let bay = 0; bay < 11; bay++)
+    for (let col = 0; col < 9; col++) {
+      const tiers = 2 + Math.floor(Math.random() * 4);
+      for (let t = 0; t < tiers; t++) slots.push([-10 + col * 2.5, 5.1 + t * 2.6, -68 + bay * 12.8]);
+    }
+  const cont = new THREE.InstancedMesh(new THREE.BoxGeometry(2.4, 2.5, 12.2), hazeMat(0xffffff), slots.length);
+  const m = new THREE.Matrix4();
+  const c = new THREE.Color();
+  slots.forEach(([x, y, z], i) => {
+    m.makeTranslation(x, y, z);
+    cont.setMatrixAt(i, m);
+    cont.setColorAt(i, c.setHex(colors[Math.floor(Math.random() * colors.length)]).multiplyScalar(0.85 + Math.random() * 0.25));
+  });
+  cont.instanceMatrix.needsUpdate = true;
+  if (cont.instanceColor) cont.instanceColor.needsUpdate = true;
+  g.add(cont);
+  g.add(box(26, 16, 12, hazeMat(0xf1eee6), 0, 11, 75)); // accommodation block at the stern
+  const windows = glowMat(0xffe0b0);
+  g.add(box(26.2, 1.2, 12.2, windows, 0, 16.5, 75));
+  g.add(box(30, 1, 6, hazeMat(0xf1eee6), 0, 19.5, 72)); // bridge wings
+  const funnel = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 3, 9, 12), hazeMat(0x1d2a3a));
+  funnel.position.set(0, 23, 80);
+  g.add(funnel);
+  return { group: g, light: mastLight(g, 0, 24, 68), windows };
+}
+
 function buildCoastGuard() {
   const g = new THREE.Group();
   g.add(new THREE.Mesh(hullGeometry(16, 4.4, 2.4, 0.9), hazeMat(0xf4f4f0)));
@@ -133,6 +194,8 @@ addVessel("sailboat", buildSailboat(), { kind: "loop", cx: -1500, cz: -400, rx: 
 addVessel("tourboat", buildTourBoat(), { kind: "loop", cx: 380, cz: -700, rx: 170, rz: 140 }, 2.2);
 addVessel("ferry", buildFerry(), { kind: "line", ax: -3300, az: -250, bx: 3300, bz: -150 }, 4, 0.4);
 addVessel("tanker", buildTanker(), { kind: "line", ax: 3600, az: 500, bx: -3600, bz: 700 }, 2.5, 0.15);
+addVessel("cruise", buildCruise(), { kind: "line", ax: -3400, az: 260, bx: 3400, bz: 160 }, 3, 0.12);
+addVessel("cargo", buildCargo(), { kind: "line", ax: 3500, az: 420, bx: -3500, bz: 340 }, 3.5, 0.1);
 addVessel("coastguard", buildCoastGuard(), { kind: "line", ax: -1800, az: -850, bx: 1800, bz: -800 }, 5);
 const smallPlane = buildSmallPlane();
 smallPlane.group.rotation.order = "YXZ";
