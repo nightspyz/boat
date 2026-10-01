@@ -71,4 +71,5 @@ Following the game plan: Explore → Discover → Decide → Return → Upgrade 
 - [x] v3.4: new gear: fishing rod + 5 catches, searchlight that follows your view, fireworks (5 shell types, light and sound), camera drone with its own flying camera mode; inventory bar; discoveries pay ~30% of their value, photos 1.2× value × quality (Poor 0.35, Okay 0.7, Good 1.2, Excellent 1.8)
 - [x] v3.5: cruise liner and container ship far offshore; shooting stars and a comet; beach camps with campfires at night; horse riders; fireworks fire forward ~100 m; the boat stops quickly when you let go of the throttle (dive/fish/cast allowed under 2.5 m/s)
 - [x] v3.6: drone range cut to 200 m from the boat (height counts), shown on the drone screen and turning red near the limit
+- [x] v3.7: cheat: typing "doronii" gives $100,000
 - [x] Fixes: stuck boat, water edges, zigzag waves (water drawn far-to-near; far ocean drawn before it), smoother cliff outline

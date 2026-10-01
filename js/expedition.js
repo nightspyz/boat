@@ -830,3 +830,19 @@ function endExpedition(towed) {
   saveGame();
   expedition.day--;
 }
+
+// ===== Cheat: type "doronii" anywhere for a pile of money =====
+{
+  let typed = "";
+  window.addEventListener("keydown", (e) => {
+    if (e.key.length !== 1) return;
+    typed = (typed + e.key.toLowerCase()).slice(-7);
+    if (typed !== "doronii") return;
+    typed = "";
+    expedition.funds += 100000;
+    saveGame();
+    sound.chime("buy");
+    toast("💰 Cheat: +$100,000", "goal");
+    if (state.shopOpen) renderShop();
+  });
+}

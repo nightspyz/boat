@@ -1,6 +1,6 @@
 # Game State
 
-_Version 3.6 · last updated 2026-10-01_
+_Version 3.7 · last updated 2026-10-01_
 
 Each download is named with its version (`coastline-v1.0.zip`, `coastline-v1.1.zip`, …).
 
