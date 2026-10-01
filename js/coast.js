@@ -6,6 +6,7 @@ const haze = {
   uHazeNear: { value: 250 },
   uHazeFar: { value: 2600 },
   uHazeMax: { value: 0.8 },
+  uWet: { value: 0 }, // rain: the land darkens as it gets wet
 };
 // Pale limestone like sea cliffs: ivory and buff layers, orange iron staining,
 // dark rain streaks, pitting and grain. rockBump gives the surface relief for lighting.
@@ -68,6 +69,7 @@ function applyHaze(material, opts = {}) {
     shader.uniforms.uHazeNear = haze.uHazeNear;
     shader.uniforms.uHazeFar = haze.uHazeFar;
     shader.uniforms.uHazeMax = haze.uHazeMax;
+    shader.uniforms.uWet = haze.uWet;
     shader.uniforms.uSunDir = shared.uSunDir;
     shader.uniforms.uSunVis = shared.uSunVis;
     shader.uniforms.uCloudCover = shared.uCloudCover;
@@ -99,7 +101,7 @@ function applyHaze(material, opts = {}) {
       mode === "rock" ? "diffuseColor.rgb * (0.8 + 0.4 * noise3(rp * 2.5))" : "limestone(rp)";
 
     shader.fragmentShader =
-      "uniform float uHazeNear;\nuniform float uHazeFar;\nuniform float uHazeMax;\n" +
+      "uniform float uHazeNear;\nuniform float uHazeFar;\nuniform float uHazeMax;\nuniform float uWet;\n" +
       "uniform vec3 uSunDir;\nuniform float uSunVis;\nuniform vec3 uSunColor;\nuniform float uTime;\n" +
       "varying vec3 vCloudWorld;\nvarying vec3 vWorldN;\nuniform float uCityLights;\n" +
       CLOUD_GLSL +
@@ -145,6 +147,7 @@ function applyHaze(material, opts = {}) {
           `vec3 wp = vCloudWorld;
         float cs = cloudShadow(wp, uSunDir);
         gl_FragColor.rgb *= 1.0 - 0.45 * (1.0 - cs) * uSunVis;
+        gl_FragColor.rgb *= 1.0 - 0.22 * uWet; // rain-soaked ground and rock look darker
         ${mode === "city" ? CITY_WINDOWS_GLSL : ""}
 
         // Beach: sand darkened where the waves have just washed over it

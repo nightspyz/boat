@@ -163,7 +163,7 @@ function updateTraffic(dt, t, env) {
     const h = waveHeight(p.x, p.z, t);
     v.group.position.set(p.x, h * v.bob, p.z);
     v.group.rotation.set(Math.sin(t * 0.7 + v.s) * 0.04 * v.bob, v.yaw, (v.type === "sailboat" ? 0.18 : 0) + Math.sin(t * 0.9 + v.s) * 0.05 * v.bob);
-    if (v.light) v.light.opacity = env.lampsOn;
+    if (v.light) v.light.opacity = env.lampsOn * (1 - 0.85 * wx.fog);
     if (v.windows) v.windows.emissiveIntensity = 1.4 * env.lampsOn;
     if (v.blue) {
       const flash = Math.floor(t * 3) % 2;
@@ -177,9 +177,9 @@ function updateTraffic(dt, t, env) {
   smallPlane.group.position.set(planeRoute.cx + Math.cos(a) * planeRoute.r, planeRoute.alt, planeRoute.cz + Math.sin(a) * planeRoute.r);
   smallPlane.group.rotation.set(0, Math.atan2(Math.sin(a), -Math.cos(a)), -0.25);
   smallPlane.prop.rotation.z += dt * 40;
-  smallPlane.group.visible = env.light > 0.3 && wx.storm < 0.5;
+  smallPlane.group.visible = env.light > 0.3 && wx.storm < 0.5 && wx.fog < 0.3;
 
   // Town lights at night
   cityLights.value = env.lampsOn;
-  town.lightMat.opacity = env.lampsOn;
+  town.lightMat.opacity = env.lampsOn * (1 - 0.85 * wx.fog);
 }

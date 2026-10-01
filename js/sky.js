@@ -16,6 +16,7 @@ const shared = {
   uCloudOffset: { value: new THREE.Vector2() },
   uLightLevel: { value: 1 },
   uAurora: { value: 0 },
+  uFog: { value: 0 }, // 0..1: how thick the fog is
 };
 
 const SKY_GLSL = /* glsl */ `
@@ -186,6 +187,7 @@ const sky = new THREE.Mesh(
       }
     `,
     fragmentShader: /* glsl */ `
+      uniform float uFog;
       ${SKY_GLSL}
       ${NOISE_GLSL}
       ${CLOUD_GLSL}
@@ -260,6 +262,8 @@ const sky = new THREE.Mesh(
           }
         }
 
+        // In fog the whole sky (clouds, sun, moon) fades into the fog
+        col = mix(col, uHorizon, uFog * 0.95);
         gl_FragColor = vec4(col, 1.0);
       }
     `,

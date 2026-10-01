@@ -59,7 +59,7 @@ function updateExpedition(dt, t, env) {
   harborScene.lampMat.emissiveIntensity = 2 * env.lampsOn;
   harborScene.lampGlow.material.opacity = env.lampsOn;
   const pulse = 0.65 + 0.35 * Math.sin(t * 1.7);
-  strangeGlow.halo.material.opacity = env.lampsOn * pulse;
+  strangeGlow.halo.material.opacity = env.lampsOn * pulse * (1 - 0.6 * wx.fog);
   strangeGlow.core.material.emissiveIntensity = 0.3 + 2 * env.lampsOn * pulse;
 
   // Gear that shows on screen: sonar readout, dive button, and white rings on new photo subjects

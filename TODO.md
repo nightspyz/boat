@@ -3,6 +3,9 @@
 Following the game plan: Explore → Discover → Decide → Return → Upgrade → Explore farther.
 
 ## Now (next up)
+- [ ] **Make the coastline look realistic** (v1.1's isn't there yet): real cliff shapes with overhangs and
+      vertical faces, eroded rock detail, grassy cliff edges, scree and boulders at the foot, varied beaches
+      (sand, pebbles), matching the reference photos (Twelve Apostles, Durdle Door, Big Sur, Rosh Hanikra)
 - [ ] Play-test in a browser and on a phone; tune fuel, rewards, prices, fog and storm frequency
 - [ ] More clues: rumours at the harbor, radio sightings during a trip
 - [ ] Use the clues from washed-up finds in tasks (e.g. the Orla's cargo)
@@ -42,4 +45,7 @@ Following the game plan: Explore → Discover → Decide → Return → Upgrade 
 - [x] Storms as danger: the open sea (>450 m offshore) pushes an ordinary hull back; finds wash up on beaches the next day
 - [x] Clues: gulls circle and dive over feeding fish, oily rainbow sheens over wrecks, the Watcher points at the strange light
 - [x] Beach life goes home in the late afternoon (empty before dark) and stays away in storms and fog
+- [x] v1.1: headlands and bays, regional rock colours, sea arch, Hidden Cove waterfall, Seven Sisters, chalk grottoes, coast road bridge, sailing limit
+- [x] v1.2: fog covers everything (terrain and cliff haze, sky and clouds, lights, planes, waterfall)
+- [x] v1.3: rain and storms close in on the land too (same distance haze as the water), and wet the ground
 - [x] Fixes: stuck boat, water edges, zigzag waves (water drawn far-to-near; far ocean drawn before it), smoother cliff outline

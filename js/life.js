@@ -714,7 +714,7 @@ function updateAirplane(dt, t, lightLevel) {
   if (!flight.active) {
     flight.timer -= dt;
     if (flight.timer <= 0) {
-      if (wx.overcast > 0.5) {
+      if (wx.overcast > 0.5 || wx.fog > 0.2) {
         flight.timer = 10; // too cloudy to see, try later
         return;
       }

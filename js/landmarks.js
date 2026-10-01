@@ -51,22 +51,28 @@ const WATERFALL = (() => {
 })();
 
 const waterfallMat = new THREE.ShaderMaterial({
-  uniforms: { uTime: shared.uTime, uLight: shared.uLightLevel },
+  uniforms: { uTime: shared.uTime, uLight: shared.uLightLevel, uFogNear: waterUniforms.uFogNear, uFogFar: waterUniforms.uFogFar },
   transparent: true,
   depthWrite: false,
   side: THREE.DoubleSide,
   vertexShader: /* glsl */ `
     varying vec2 vUv;
+    varying float vDist;
     void main() {
       vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      vDist = -mv.z;
+      gl_Position = projectionMatrix * mv;
     }
   `,
   fragmentShader: /* glsl */ `
     ${NOISE_GLSL}
     uniform float uTime;
     uniform float uLight;
+    uniform float uFogNear;
+    uniform float uFogFar;
     varying vec2 vUv;
+    varying float vDist;
     void main() {
       // Streaks of falling water, faster lower down, frothing at the bottom
       float fall = vUv.y * 3.0 + uTime * (2.5 + (1.0 - vUv.y) * 2.0);
@@ -75,7 +81,7 @@ const waterfallMat = new THREE.ShaderMaterial({
       float froth = 1.0 - smoothstep(0.0, 0.15, vUv.y);
       float a = edge * (0.35 + 0.65 * smoothstep(0.35, 0.75, streak)) + froth * 0.5 * edge;
       vec3 col = mix(vec3(0.7, 0.82, 0.88), vec3(1.0), max(streak, froth)) * uLight;
-      gl_FragColor = vec4(col, clamp(a, 0.0, 0.92));
+      gl_FragColor = vec4(col, clamp(a, 0.0, 0.92) * (1.0 - smoothstep(uFogNear, uFogFar, vDist)));
     }
   `,
 });

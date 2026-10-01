@@ -226,8 +226,13 @@ function applyEnvironment(hours) {
   scene.fog.far = fogFar;
   waterUniforms.uFogNear.value = fogNear;
   waterUniforms.uFogFar.value = fogFar;
+  // The coast, cliffs, rocks and town fade with distance the same way: far off in clear air, closing in
+  // through rain and storms, and within a hundred metres or so in fog
   haze.uHazeMax.value = Math.min(1, 0.78 + 0.22 * wx.rain + 0.22 * wx.fog);
-  haze.uHazeNear.value = lerp(250 - 150 * wx.rain, 40, wx.fog);
+  haze.uHazeNear.value = lerp(lerp(250, 40, wx.rain), 6, wx.fog);
+  haze.uHazeFar.value = lerp(lerp(2600, 450, wx.rain), 150, wx.fog);
+  haze.uWet.value = wx.rain;
+  shared.uFog.value = wx.fog;
 
   scene.fog.color.copy(horizon);
   renderer.setClearColor(horizon);
