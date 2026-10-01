@@ -3,12 +3,9 @@
 Following the game plan: Explore → Discover → Decide → Return → Upgrade → Explore farther.
 
 ## Now (next up)
-- [ ] **Fog** as a weather state: short visibility, harder navigation, rare wildlife that only shows in fog
-- [ ] **Weather as the danger:** storms that make some sites unreachable without the reinforced hull,
-      and wreckage/valuable finds washed up *after* a storm
-- [ ] **Clues in the world:** birds circling over fish, unusual water over wrecks, the Watcher statue's
-      pointing arm as a real hint
-- [ ] Play-test in a browser and on a phone; tune fuel, rewards and prices
+- [ ] Play-test in a browser and on a phone; tune fuel, rewards, prices, fog and storm frequency
+- [ ] More clues: rumours at the harbor, radio sightings during a trip
+- [ ] Use the clues from washed-up finds in tasks (e.g. the Orla's cargo)
 
 ## Next
 - [ ] **Beyond the edge of the map:** a new area to the east (the artifact's clue), reached with the
@@ -20,10 +17,8 @@ Following the game plan: Explore → Discover → Decide → Return → Upgrade 
 - [ ] Artifact fragments hint at the next mystery chapter
 
 ## Later
-- [ ] Sound: sea, wind, rain, engine, gulls, camera shutter, sonar ping
-- [ ] Music that shifts with time of day and weather
 - [ ] Photo mode (hide HUD, free camera) and saving photos
-- [ ] Performance settings (cloud quality, water detail) for phones
+- [ ] Performance settings (cloud quality, water detail, reef density) for phones
 - [ ] Settings menu (controls, volume, reset progress)
 
 ## Done
@@ -32,6 +27,7 @@ Following the game plan: Explore → Discover → Decide → Return → Upgrade 
 - [x] Wildlife, air and sea traffic, clouds, weather, wind, waves, aurora
 - [x] Coast: cliffs, sea stacks, lighthouse, cove beach, river and swamp, clifftop town, islands, reefs
 - [x] Realistic water: caustics, reflections, foam, see-through shallows, lapping waves
+- [x] Swell rolls in toward the coast; breakers build up in the shallows and topple into foam on beaches and island shores
 - [x] Core loop: daily expeditions with hints, fuel and time, docking, summary, forecast
 - [x] Ocean Journal with visibility rules for spotting and photographing
 - [x] Money from discoveries, first photos, relics and tasks; repeat photos pay nothing; white rings on new photo subjects
@@ -39,4 +35,11 @@ Following the game plan: Explore → Discover → Decide → Return → Upgrade 
 - [x] Sonar, diving, relics and the first artifact mystery
 - [x] Saved progress, Continue / New game
 - [x] Minimap, free orbit camera, touch controls
+- [x] Sound, all synthesized in code: sea, surf, wind, rain, thunder, engine, wildlife, horns, bell, swamp, traffic, UI, sonar, diving; music that follows time of day and weather; M to mute
+- [x] Split game.js into 15 topic files under js/
+- [x] 3D coral reefs and underwater rocks (js/reef.js); fixed the checkerboard (ripple pattern, blocky seabed noise, sin() hash)
+- [x] Fog days: ~100 m visibility, foghorn and lighthouse beams to steer by, a humpback whale that only comes in fog
+- [x] Storms as danger: the open sea (>450 m offshore) pushes an ordinary hull back; finds wash up on beaches the next day
+- [x] Clues: gulls circle and dive over feeding fish, oily rainbow sheens over wrecks, the Watcher points at the strange light
+- [x] Beach life goes home in the late afternoon (empty before dark) and stays away in storms and fog
 - [x] Fixes: stuck boat, water edges, zigzag waves (water drawn far-to-near; far ocean drawn before it), smoother cliff outline

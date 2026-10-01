@@ -1,6 +1,8 @@
 # Game State
 
-_Last updated: 2026-09-30_
+_Version 1.1 · last updated 2026-10-01_
+
+Each download is named with its version (`coastline-v1.0.zip`, `coastline-v1.1.zip`, …).
 
 ## Concept
 A relaxing ocean exploration game that slowly turns into a mystery. You take a small boat out from
@@ -30,7 +32,8 @@ The core loop and the upgrade loop are playable and saved between sessions. The 
 ## What works
 - **World:** 3D ocean with Gerstner waves, foam, caustics and see-through shallows; limestone cliffs with
   sea stacks, a lighthouse, a sandy harbor cove, a river with two mouths and a reed swamp, a clifftop
-  town that lights up at night, three islands (Palm Islet, Seal Rock, Goat Island), coral reefs.
+  town that lights up at night, three islands (Palm Islet, Seal Rock, Goat Island), coral reefs with 3D corals,
+  sea fans and boulders below the cliffs, in patches in the bay and around the islands.
 - **Sky:** day/night cycle, volumetric clouds with shadows, weather (clear → cloudy → rain → storm)
   driving wind and waves, lightning, aurora, stars, moon.
 - **Life:** dolphins (curious, then lose interest), reef fish schools, leaping fish, sea turtles, seals,
@@ -45,6 +48,17 @@ The core loop and the upgrade loop are playable and saved between sessions. The 
 - **Boatyard (B):** binoculars, long-range tank, telephoto camera, marine radio (search area on the map),
   chartplotter (bigger map with discovered places), reinforced hull (storms), sonar, diving gear.
 - **Diving (X):** recover relics at underwater sites; sonar finds a deep wreck you can't see.
+- **Sound:** every sound is synthesized in code (Web Audio API, no audio files): sea and surf, wind, rain,
+  thunder after lightning, an engine that follows the throttle and splutters on low fuel, gulls, seals, dolphins,
+  swamp frogs, ferry horn, foghorn, town bell, siren, planes, a hum at the strange light, camera, chimes, sonar, diving,
+  and soft music that changes with time of day and weather. Starts on the first key/tap; M or 🔊 mutes (saved).
+- **Weather days:** clear, cloudy, rain, storm, and fog days (about 100 m visibility; follow the foghorn and
+  the lighthouse beam home; a humpback whale only comes in close in fog). In storms, the swell more than ~450 m
+  offshore drives an ordinary hull back (Goat Island and the shipping lanes are out of reach without the
+  reinforced hull). The day after a storm, a crate, a message in a bottle or an amphora lie on the beaches.
+- **Clues in the world:** gulls circle and dive over a shoal of feeding fish (leaping fish there); oily rainbow
+  sheens give away the wrecks, even the deep one; the Watcher statue's arm points at the strange light (drawn on
+  the map once found); washed-up finds and the logbook carry written hints.
 - **Saving:** progress is saved in the browser after each day and each purchase; Continue / New game.
 - **Controls:** keyboard + mouse (drag to orbit, scroll to zoom), and touch (joystick, buttons, pinch).
 - **Minimap:** coast, islands, river, town, home and lighthouse, gear overlays.
@@ -54,15 +68,35 @@ The core loop and the upgrade loop are playable and saved between sessions. The 
 |------|---------|
 | `index.html` | Page layout: canvas, HUD, overlays, journal, minimap, touch controls |
 | `style.css` | HUD, overlays, boatyard, journal, touch controls, photo rings |
-| `game.js` | Everything else: world, rendering, simulation, expeditions, journal, upgrades, saving |
+| `js/` | The game, as plain scripts loaded in order by `index.html` (one shared global scope; no build step) |
+| `js/core.js` | Setup, helpers, game state, keyboard input, wave + shore geometry shared by shaders and physics, islands |
+| `js/sky.js` | Sky, clouds and time-of-day uniforms, sky dome |
+| `js/water.js` | Ocean shader (waves, breakers, foam, caustics), far ocean, underwater look, lights |
+| `js/coast.js` | Cliffs and beach terrain, river valley, sea stacks, shore rocks, lighthouse |
+| `js/life.js` | Splashes, dolphins, fish, reef fish, birds, airplanes |
+| `js/weather.js` | Rain, lightning, weather changes, day/night and weather lighting |
+| `js/boat.js` | The player's boat: model, steering, collision, camera |
+| `js/places.js` | Harbor, hidden places, islands, ruins and statues, underwater sites |
+| `js/reef.js` | 3D corals and rocks on the sea floor (table, brain, staghorn, finger and soft corals, sea fans, boulders), grown around the camera |
+| `js/landmarks.js` | Sea arch, Hidden Cove waterfall, chalk grottoes, coast road with bridge and cars |
+| `js/town.js` | River water, reeds and trees, clifftop town, beach life |
+| `js/traffic.js` | Sea and air traffic |
+| `js/expedition.js` | Journal entries, daily tasks, money, boatyard, saving, briefing and summary screens |
+| `js/discovery.js` | Toasts, spotting and photographing (visibility rules), journal screen, sonar and diving |
+| `js/hud.js` | Photo highlights, minimap, touch controls |
+| `js/sound.js` | All sound, synthesized with the Web Audio API |
+| `js/main.js` | Rendering, title screen, main loop (must load last) |
 | `assets/` | Unused so far (everything is procedural) |
 | `GAME_STATE.md` | This file: the plan and where the project stands |
 | `TODO.md` | What's next, following the game plan |
 
 ## Known issues / limits
 - Not yet play-tested in a real browser or on a phone by the developer (logic is tested headlessly).
-- Heavy on the GPU (volumetric clouds, water shader, big terrain); may be slow on weaker devices.
+- Heavy on the GPU (volumetric clouds, water shader, big terrain, up to ~650k reef triangles in the densest reef); may be slow on weaker devices.
 - Needs an internet connection the first time (Three.js r128 from a CDN).
 
 ## How to run
 Open `index.html` in a browser. Progress saves in that browser (localStorage).
+The js/ files are plain scripts (not modules), so double-clicking `index.html` works without a local server.
+When adding code, a file may only use things from files listed *before* it while it loads; inside functions
+that run later (updates, events), anything goes.

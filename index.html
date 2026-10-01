@@ -26,7 +26,7 @@
     <div id="overlay">
       <div id="overlay-title">Press Space to start</div>
       <div id="overlay-body"></div>
-      <div class="hint">W / S throttle · A / D steer · drag to look around · scroll to zoom · C camera behind boat · F photograph · J journal · E dock · X dive · B boatyard · hold T to speed up time · Space to pause</div>
+      <div class="hint">W / S throttle · A / D steer · drag to look around · scroll to zoom · C camera behind boat · F photograph · J journal · E dock · X dive · B boatyard · hold T to speed up time · M sound on/off · Space to pause</div>
     </div>
     <div id="journal" class="hidden"></div>
     <canvas id="minimap" width="340" height="340" aria-label="Minimap"></canvas>
@@ -42,10 +42,28 @@
         <button data-act="time" aria-label="Hold to speed up time">⏩</button>
         <button data-act="camera" aria-label="Camera behind the boat">🎥</button>
         <button data-act="pause" aria-label="Pause">⏸</button>
+        <button data-act="mute" aria-label="Sound on or off">🔊</button>
       </div>
     </div>
   </main>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="game.js"></script>
+  <!-- The game, in load order (plain scripts sharing one global scope) -->
+  <script src="js/core.js"></script>
+  <script src="js/sky.js"></script>
+  <script src="js/water.js"></script>
+  <script src="js/coast.js"></script>
+  <script src="js/life.js"></script>
+  <script src="js/weather.js"></script>
+  <script src="js/boat.js"></script>
+  <script src="js/places.js"></script>
+  <script src="js/reef.js"></script>
+  <script src="js/landmarks.js"></script>
+  <script src="js/town.js"></script>
+  <script src="js/traffic.js"></script>
+  <script src="js/expedition.js"></script>
+  <script src="js/discovery.js"></script>
+  <script src="js/hud.js"></script>
+  <script src="js/sound.js"></script>
+  <script src="js/main.js"></script>
 </body>
 </html>
