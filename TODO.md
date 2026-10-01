@@ -48,4 +48,5 @@ Following the game plan: Explore → Discover → Decide → Return → Upgrade 
 - [x] v1.1: headlands and bays, regional rock colours, sea arch, Hidden Cove waterfall, Seven Sisters, chalk grottoes, coast road bridge, sailing limit
 - [x] v1.2: fog covers everything (terrain and cliff haze, sky and clouds, lights, planes, waterfall)
 - [x] v1.3: rain and storms close in on the land too (same distance haze as the water), and wet the ground
+- [x] v1.4: reef fish swim individually: each follows the school at its own pace, turns ripple through it
 - [x] Fixes: stuck boat, water edges, zigzag waves (water drawn far-to-near; far ocean drawn before it), smoother cliff outline

@@ -360,12 +360,27 @@ const schools = [
   heading: 0,
   placed: false,
   seed: i * 13.7,
+  vx: 0,
+  vz: 0,
+  // Every fish swims on its own: it keeps its own position, speed and heading, and follows its place in
+  // the school with its own reaction time, so a turn ripples through the school instead of all at once
   fish: Array.from({ length: FISH_PER_SCHOOL }, () => ({
     ox: rand(-1, 1) * 4,
     oy: rand(-1, 1) * 0.8,
     oz: rand(-1, 1) * 6,
     phase: rand(0, Math.PI * 2),
     scale: rand(0.8, 1.2),
+    x: 0,
+    y: 0,
+    z: 0,
+    vx: 0,
+    vy: 0,
+    vz: 0,
+    heading: 0,
+    slotHeading: 0, // the school's heading as this fish has noticed it
+    react: rand(0.6, 2.2), // how quickly it notices the school turning (rad/s)
+    turn: rand(2.2, 4), // how fast it can turn (rad/s)
+    maxSpeed: rand(4.6, 6.2), // always faster than the school (up to 4 m/s), so nobody gets left behind
   })),
 }));
 
@@ -390,7 +405,8 @@ function updateReefFish(dt, t) {
     let tx = b.x + s.offX + Math.sin(t * 0.1 + s.seed) * 15;
     let tz = b.z + s.offZ + Math.cos(t * 0.13 + s.seed) * 10;
     for (let k = 0; k < 30 && seaBed(tx, tz) > -3; k++) tz += 4;
-    if (!s.placed) {
+    const fresh = !s.placed;
+    if (fresh) {
       s.x = tx;
       s.z = tz;
       s.placed = true;
@@ -400,10 +416,10 @@ function updateReefFish(dt, t) {
     const dz = tz - s.z;
     const dist = Math.hypot(dx, dz);
     const speed = Math.min(dist * 0.5, 4);
-    if (dist > 0.01) {
-      s.x += (dx / dist) * speed * dt;
-      s.z += (dz / dist) * speed * dt;
-    }
+    s.vx = dist > 0.01 ? (dx / dist) * speed : 0;
+    s.vz = dist > 0.01 ? (dz / dist) * speed : 0;
+    s.x += s.vx * dt;
+    s.z += s.vz * dt;
     // Face the way the school moves; drift around slowly when it's idle
     const desired = speed > 0.3 ? Math.atan2(-dx, -dz) : s.heading + dt * 0.3;
     s.heading += clamp(wrapAngle(desired - s.heading), -dt * 1.2, dt * 1.2);
@@ -412,22 +428,61 @@ function updateReefFish(dt, t) {
     const targetY = clamp(bed + 2.5, -6, -1.2);
     s.y += (targetY - s.y) * (1 - Math.exp(-dt));
 
-    const ch = Math.cos(s.heading);
-    const sh = Math.sin(s.heading);
-    for (const f of s.fish) {
-      // Offsets in the school's own frame, gently swirling
-      const sway = Math.sin(t * 0.8 + f.phase);
-      const lx = f.ox + sway * 0.6;
+    const follow = 1 - Math.exp(-dt * 2.5);
+    s.fish.forEach((f, fi) => {
+      // The fish's place in the school, turned by the school's heading as this fish has noticed it
+      f.slotHeading += clamp(wrapAngle(s.heading - f.slotHeading), -f.react * dt, f.react * dt);
+      const ch = Math.cos(f.slotHeading);
+      const sh = Math.sin(f.slotHeading);
+      const lx = f.ox + Math.sin(t * 0.8 + f.phase) * 0.6;
       const lz = f.oz + Math.cos(t * 0.6 + f.phase) * 0.8;
-      fishPos.set(s.x + lx * ch + lz * sh, s.y + f.oy + Math.sin(t * 1.3 + f.phase) * 0.2, s.z - lx * sh + lz * ch);
-      fishEuler.set(Math.sin(t * 0.9 + f.phase) * 0.1, s.heading + sway * 0.25, 0);
+      const px = s.x + lx * ch + lz * sh;
+      const py = s.y + f.oy + Math.sin(t * 1.3 + f.phase) * 0.2;
+      const pz = s.z - lx * sh + lz * ch;
+      if (fresh) {
+        Object.assign(f, { x: px, y: py, z: pz, vx: 0, vy: 0, vz: 0, heading: s.heading, slotHeading: s.heading });
+      }
+      // Swim toward that place, going with the school's flow, never faster than this fish can
+      let wx = (px - f.x) * 1.2 + s.vx;
+      let wy = (py - f.y) * 1.2;
+      let wz = (pz - f.z) * 1.2 + s.vz;
+      // Keep a little space from a neighbour
+      const n = s.fish[(fi + 1) % s.fish.length];
+      const sx = f.x - n.x;
+      const sy = f.y - n.y;
+      const sz = f.z - n.z;
+      const sd = Math.hypot(sx, sy, sz);
+      if (sd < 0.6 && sd > 1e-4) {
+        wx += (sx / sd) * (0.6 - sd) * 4;
+        wy += (sy / sd) * (0.6 - sd) * 4;
+        wz += (sz / sd) * (0.6 - sd) * 4;
+      }
+      const ws = Math.hypot(wx, wy, wz);
+      if (ws > f.maxSpeed) {
+        wx *= f.maxSpeed / ws;
+        wy *= f.maxSpeed / ws;
+        wz *= f.maxSpeed / ws;
+      }
+      f.vx += (wx - f.vx) * follow;
+      f.vy += (wy - f.vy) * follow;
+      f.vz += (wz - f.vz) * follow;
+      f.x += f.vx * dt;
+      f.y += f.vy * dt;
+      f.z += f.vz * dt;
+      // Turn to face where it's swimming, at its own pace; when idling, drift toward the school's heading
+      const hs = Math.hypot(f.vx, f.vz);
+      const want = hs > 0.25 ? Math.atan2(-f.vx, -f.vz) : f.slotHeading;
+      f.heading += clamp(wrapAngle(want - f.heading), -f.turn * dt, f.turn * dt);
+      const pitch = clamp(Math.atan2(f.vy, Math.max(hs, 0.3)), -0.5, 0.5);
+      fishPos.set(f.x, f.y, f.z);
+      fishEuler.set(pitch + Math.sin(t * 0.9 + f.phase) * 0.05, f.heading, 0);
       fishQuat.setFromEuler(fishEuler);
       fishScale.setScalar(f.scale);
       fishMatrix.compose(fishPos, fishQuat, fishScale);
       reefBodies.setMatrixAt(idx, fishMatrix);
       reefTails.setMatrixAt(idx, fishMatrix);
       idx++;
-    }
+    });
   });
   reefBodies.instanceMatrix.needsUpdate = true;
   reefTails.instanceMatrix.needsUpdate = true;
