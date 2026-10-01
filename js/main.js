@@ -96,7 +96,7 @@ function loop(now) {
     const active = state.running;
     if (active) {
       const mult = keys.has("KeyT") ? TIME_FAST_FORWARD : 1;
-      const hoursPassed = (dt * mult * 24) / DAY_LENGTH;
+      const hoursPassed = (dt * mult * settings.timeSpeed * 24) / DAY_LENGTH; // (time speed: menu.js)
       state.timeOfDay = (state.timeOfDay + hoursPassed) % 24;
       expedition.hours += hoursPassed;
     }

@@ -62,4 +62,8 @@ Following the game plan: Explore → Discover → Decide → Return → Upgrade 
 - [x] v2.5: jellyfish, floating debris, buoys, weather buoy, offshore oil rig, offshore wind farm and hilltop turbines (all photographable, buoys/rig/turbines solid); stars glitter and the aurora shimmers on the sea at night; new journal section "Man-made at sea"
 - [x] v2.6: star reflections on the sea toned way down (fewer, fainter, mostly toward the horizon)
 - [x] v2.7: telephoto upgrade now means zoom to 10× and 60% more photo range; photo quality counts how big the subject looks (zoom helps); description updated
+- [x] v2.8 (coastline, first pass): near-vertical cliff walls with ledges, joints, buttresses, wave notch and overhanging lip; turf along the cliff tops; scree and fallen blocks at the foot; sea stacks without rings; pebble beaches under cliffs and a seaweed line on sandy ones
+- [x] v2.9: cliff walls join up cleanly: no big buttresses sticking out, the wall is solid from every side, the turf ends at the rock lip and only shows from above
+- [x] v3.0: the sea arch is one seamless piece of rock; the Hidden Cove waterfall pours over the cliff lip all the way down to the beach
+- [x] v3.1: Esc settings menu (pauses the game): master/effects/ambience/music volume, boat speed, time-of-day speed, weather (forecast or fixed clear/cloudy/rain/storm/fog); saved in the browser
 - [x] Fixes: stuck boat, water edges, zigzag waves (water drawn far-to-near; far ocean drawn before it), smoother cliff outline

@@ -2,27 +2,47 @@
 // of East Head, and the coast road with its arch bridge over the creek at Bridge Bay (with a few cars).
 // Part of Coastline: the js/ files load in order from index.html and share one global scope.
 
-// ===== The sea arch: a span of rock between two legs (the legs are sea stacks, see coast.js) =====
+// ===== The sea arch: one continuous piece of rock, up one leg, over the top and down the other =====
+// (the legs are still listed in seaStacks for the boat's collisions and the rocky sea floor, but drawn here)
 function buildArchSpan() {
-  const tube = 4.4;
-  const geo = new THREE.TorusGeometry(ARCH.R, tube, 14, 36, Math.PI);
-  // Rough it up so it reads as eroded rock, and make the top heavier than the underside
+  const R = ARCH.R;
+  const pts = [];
+  for (let y = -14; y < ARCH.H0; y += 3) pts.push(new THREE.Vector3(-R, y, 0));
+  for (let k = 0; k <= 16; k++) {
+    const a = Math.PI - (k / 16) * Math.PI;
+    pts.push(new THREE.Vector3(Math.cos(a) * R, ARCH.H0 + Math.sin(a) * R, 0));
+  }
+  for (let y = ARCH.H0 - 3; y >= -14; y -= 3) pts.push(new THREE.Vector3(R, y, 0));
+  const path = new THREE.CatmullRomCurve3(pts, false, "centripetal");
+  const SEG = 160;
+  const RAD = 20;
+  const geo = new THREE.TubeGeometry(path, SEG, 1, RAD, false);
   const p = geo.attributes.position;
-  for (let i = 0; i < p.count; i++) {
-    const x = p.getX(i);
-    const y = p.getY(i);
-    const z = p.getZ(i);
-    const a = Math.atan2(y, x);
-    const cx = Math.cos(a) * ARCH.R;
-    const cy = Math.sin(a) * ARCH.R;
-    const ox = x - cx;
-    const oy = y - cy;
-    const k = 0.85 + 0.35 * cloudNoise3(x * 0.25, y * 0.25 + 3, z * 0.25) + (oy > 0 ? 0.25 * (oy / tube) : 0);
-    p.setXYZ(i, cx + ox * k, cy + oy * k * (oy > 0 ? 1.15 : 1), z * k * 1.1);
+  const c = new THREE.Vector3();
+  for (let i = 0; i <= SEG; i++) {
+    path.getPointAt(i / SEG, c);
+    const inSpan = c.y > ARCH.H0 - 1;
+    for (let j = 0; j <= RAD; j++) {
+      const n = i * (RAD + 1) + j;
+      const ox = p.getX(n) - c.x;
+      const oy = p.getY(n) - c.y;
+      const oz = p.getZ(n) - c.z;
+      // Thickness: flared under water, notched at the waterline, a heavier crown on top
+      let r = ARCH.legR * 1.05;
+      r *= 1 + 0.35 * smooth(2, -6, c.y);
+      r *= 1 - 0.18 * Math.exp(-(((c.y - 0.7) / 1.3) ** 2));
+      const wx = c.x + ox * r;
+      const wy = c.y + oy * r;
+      const wz = c.z + oz * r;
+      r *= 0.82 + 0.36 * cloudNoise3(wx * 0.18 + 2, wy * 0.12, wz * 0.18 + 5);
+      r *= 0.95 + 0.1 * cloudNoise3(wx * 0.6, wy * 0.5 + 9, wz * 0.6);
+      const up = inSpan && oy > 0 ? 1.18 : 1;
+      p.setXYZ(n, c.x + ox * r, c.y + oy * r * up, c.z + oz * r * 1.1);
+    }
   }
   geo.computeVertexNormals();
   const mesh = new THREE.Mesh(geo, stackMat);
-  mesh.position.set(ARCH.x, ARCH.H0, ARCH.z);
+  mesh.position.set(ARCH.x, 0, ARCH.z);
   return mesh;
 }
 scene.add(buildArchSpan());
@@ -49,6 +69,19 @@ const WATERFALL = (() => {
   top = top || { d: 70, y: 35 };
   return { x, foot, top, z: shoreZAt(x) - foot.d };
 })();
+
+// The cliff wall (coast.js) stands in front of the land: the stream pours over its lip and falls
+// down the face all the way to the beach
+{
+  const c = CLIFF_COLS.reduce((best, col) => (Math.abs(col.x - WATERFALL.x) < Math.abs(best.x - WATERFALL.x) ? col : best), CLIFF_COLS[0]);
+  if (c && c.lip && Math.abs(c.x - WATERFALL.x) < 4) {
+    WATERFALL.top = { d: WATERFALL.top.d, y: c.yTop };
+    WATERFALL.foot = { d: WATERFALL.foot.d, y: c.yBot + 1.4 };
+    WATERFALL.zTop = c.lip.z + c.nz * 1.0;
+    WATERFALL.zFoot = c.zb + c.nz * 3.5;
+    WATERFALL.z = WATERFALL.zFoot;
+  }
+}
 
 const waterfallMat = new THREE.ShaderMaterial({
   uniforms: { uTime: shared.uTime, uLight: shared.uLightLevel, uFogNear: waterUniforms.uFogNear, uFogFar: waterUniforms.uFogFar },
@@ -88,9 +121,9 @@ const waterfallMat = new THREE.ShaderMaterial({
 function buildWaterfall() {
   const W = WATERFALL;
   const x = W.x;
-  const zTop = shoreZAt(x) - W.top.d + 2.5;
-  const zFoot = shoreZAt(x) - W.foot.d + 1.5;
-  const half = 2.2;
+  const zTop = W.zTop ?? shoreZAt(x) - W.top.d + 2.5;
+  const zFoot = W.zFoot ?? shoreZAt(x) - W.foot.d + 1.5;
+  const half = 2.8;
   // A sheet hugging the cliff face, a little out from it; a few rows so it can bow outward
   const rows = 8;
   const pos = [];
@@ -121,7 +154,7 @@ scene.add(buildWaterfall());
 WATERFALL.splashTimer = 0;
 
 // ===== East Head: grottoes at the foot of the chalk cliffs =====
-const GROTTO_XS = [1330, 1398, 1468];
+const GROTTO_XS = GROTTO_SPOTS; // (coast.js: the cliff walls leave openings for them)
 const grottoDark = new THREE.MeshBasicMaterial({ color: 0x07110f, side: THREE.BackSide });
 const grottoBack = new THREE.MeshBasicMaterial({ color: 0x050b0a });
 const GROTTOES = GROTTO_XS.map((x, k) => {

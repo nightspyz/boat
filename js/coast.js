@@ -32,7 +32,7 @@ const ROCK_GLSL = /* glsl */ `
     float streak = smoothstep(0.55, 0.8, noise3(p * vec3(0.9, 0.06, 0.9)));
     col *= 1.0 - 0.28 * streak;
     float pit = smoothstep(0.72, 0.85, noise3(p * 2.2));
-    col *= 1.0 - 0.35 * pit;
+    col *= 1.0 - 0.14 * pit;
     col *= 0.88 + 0.24 * noise3(p * 6.0);
     return col;
   }
@@ -58,6 +58,31 @@ const CITY_WINDOWS_GLSL = /* glsl */ `
       gl_FragColor.rgb += vec3(1.0, 0.76, 0.42) * win * lit * uCityLights * 1.6;
     }
   }
+`;
+
+// Beaches: pebbles instead of sand on the beaches under the cliffs, and a dark line of washed-up
+// seaweed along the high-water mark on the sandy ones
+const PEBBLE_GLSL = /* glsl */ `
+        {
+          float distP = length(cameraPosition - wp);
+          float pebbly = sandMask * smoothstep(0.45, 0.75, cliffAmount(wp.x));
+          if (pebbly > 0.01) {
+            vec2 pp = wp.xz * 2.2;
+            vec2 cellP = floor(pp);
+            vec2 jit = vec2(hash3(vec3(cellP, 7.0)), hash3(vec3(cellP, 8.0))) - 0.5;
+            float dP = length(fract(pp) - 0.5 - jit * 0.35);
+            float stone = 1.0 - smoothstep(0.3, 0.46, dP);
+            vec3 pc = mix(vec3(0.52, 0.5, 0.47), vec3(0.86, 0.82, 0.74), hash3(vec3(cellP, 9.0)));
+            pc = mix(pc, vec3(0.62, 0.47, 0.35), step(0.82, hash3(vec3(cellP, 10.0))));
+            vec3 tgt = mix(vec3(0.33, 0.3, 0.26), pc * (0.85 + 0.3 * (1.0 - dP)), stone);
+            tgt = mix(tgt, vec3(0.66, 0.62, 0.56), smoothstep(25.0, 110.0, distP));
+            gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb * tgt / vec3(0.89, 0.83, 0.66), pebbly);
+          }
+          float wrack = sandMask * (1.0 - pebbly) * smoothstep(0.7, 0.82, wp.y) * (1.0 - smoothstep(0.92, 1.1, wp.y))
+                      * smoothstep(0.45, 0.7, noise3(vec3(wp.xz * 0.35, 3.0)));
+          gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb * vec3(0.42, 0.4, 0.28), wrack * 0.8);
+          sandMask *= 1.0 - pebbly; // no sand glints on the pebbles
+        }
 `;
 
 // opts.terrain: per-vertex rock mask (aRock) on the cliffs; opts.stack: sea stacks (all limestone);
@@ -156,6 +181,7 @@ function applyHaze(material, opts = {}) {
         float sw = swashLevel(wp.xz, uTime);
         float wet = max(1.0 - smoothstep(0.3, 0.7, wp.y), 1.0 - smoothstep(0.0, 0.3, wp.y - sw)) * sandMask;
         gl_FragColor.rgb *= 1.0 - 0.38 * wet;
+        ${mode === "terrain" ? PEBBLE_GLSL : ""}
 
         // Sand grains glinting in the sun: each tiny cell has a random facet that catches
         // the sun only from certain angles, so the sparkle shimmers as you move
@@ -230,6 +256,13 @@ function carveRiver(x, z, y) {
   return Math.min(y, lerp(-1.3, y, smooth(-1, 5, r))); // the channel itself
 }
 
+// Gullies and buttresses: the cliff line wanders in and out along the coast. Kept broad (≥ ~15 m)
+// so the 5 m terrain grid follows it smoothly.
+const cliffGully = (x) => (noise1(x * 0.03 + 11) - 0.5) * 16 + (noise1(x * 0.065 + 3) - 0.5) * 5;
+// Distance inland from the waterline where the cliff rises (the foot of the face). Never right at the
+// waterline, so the boat and the surf never reach into the rock.
+const cliffLine = (x) => Math.max(cliffSetback(x) + 13 - cliffGully(x), 3);
+
 function landHeight(x, z) {
   const d = inland(x, z);
   if (d < 0) return seaBed(x, z);
@@ -242,12 +275,9 @@ function landHeight(x, z) {
   // Limestone cliff rising from a rocky shelf at the waterline (or from the back of a beach, or straight out
   // of the sea), cut by gullies and buttresses
   const sb = cliffSetback(x);
-  const dc = d - sb; // distance inland from the foot of the cliff
   const cliffH = 32 + 26 * noise1(x * 0.01 + 3.1);
-  // Gullies and buttresses kept broad enough (≥ ~15 m) for the 5 m terrain grid to draw smoothly,
-  // otherwise the cliff edge breaks up into jagged sawtooth spikes on the horizon
-  const gully = (noise1(x * 0.03 + 11) - 0.5) * 16 + (noise1(x * 0.065 + 3) - 0.5) * 5;
-  const rise = smooth(12, 30, dc + gully + (noise2(x * 0.04, z * 0.04) - 0.5) * 6);
+  // The land steps up within 4 m of the cliff line; the rock face itself is its own mesh (buildCliffWalls)
+  const rise = smooth(0, 4, d - cliffLine(x));
   const step = 3.5 + 2 * noise1(x * 0.02 + 1.7);
   const beachBase = beachProfile(Math.min(d, Math.max(sb, 0))) + 0.3; // 0 where there's no beach
   const shelfD = Math.max(d - Math.max(sb, 0), 0);
@@ -340,6 +370,134 @@ function buildShoreline() {
 }
 scene.add(buildShoreline());
 
+// ===== Cliff walls: real rock faces in front of the terrain's steep step =====
+// The terrain is a heightfield, so it can't make vertical faces, overhangs or caves. Along every cliff
+// a separate wall rises from the rock shelf (or beach) to the clifftop: leaning back a little, with
+// layered ledges that jut out, vertical joints and buttresses, a notch cut by the waves at the
+// waterline, an overhanging lip, and its top tucked under the edge of the clifftop grass.
+const GROTTO_SPOTS = [1330, 1398, 1468]; // the chalk grottoes at East Head (landmarks.js) need openings
+const CLIFF_COLS = []; // every column of wall, for the rocks at its foot and the turf on its lip
+function buildCliffWalls() {
+  const STEP = 2;
+  const ROWS = 34;
+  // The wall's base line stands this far in front of the cliff line: farther where a beach or shelf
+  // gives room, so the terrain's own steep step stays hidden behind it
+  const backAt = (line) => clamp(line - 1, 3.5, 7.5);
+  const strips = [];
+  let strip = null;
+  for (let x = -2900; x <= 2900; x += STEP) {
+    const cm = cliffAmount(x);
+    const gap =
+      cm < 0.55 ||
+      (x > 450 && x < 1150) ||
+      Math.abs(x - CREEK_X) < 70;
+    let col = null;
+    if (!gap) {
+      const line = cliffLine(x);
+      const zAt = (xx, d) => shoreZAt(xx) - d;
+      const back = backAt(line);
+      const zb = zAt(x, line - back);
+      const lineA = cliffLine(x + 1);
+      const lineB = cliffLine(x - 1);
+      const dzdx = (zAt(x + 1, lineA - backAt(lineA)) - zAt(x - 1, lineB - backAt(lineB))) / 2;
+      const nl = Math.hypot(dzdx, 1);
+      const nx = -dzdx / nl; // outward, toward the sea
+      const nz = 1 / nl;
+      const yBot = landHeight(x, zAt(x, line - back - 0.5)) - 1.4;
+      const yTop = landHeight(x, zAt(x, line + 4.5));
+      const H = yTop - yBot;
+      if (H > 5) col = { x, zb, nx, nz, yBot, yTop, H, line, cm, back };
+    }
+    if (!col) {
+      strip = null;
+      continue;
+    }
+    if (!strip) strips.push((strip = []));
+    strip.push(col);
+    CLIFF_COLS.push(col);
+  }
+
+  // How far the face stands out (+) or back (−) from its base line at height y
+  const chalkAt = (x) => Math.exp(-(((x - 1400) / 230) ** 2));
+  function faceOffset(c, y, v) {
+    const x = c.x;
+    const chalk = chalkAt(x);
+    let o = 0;
+    o -= v * 1.0; // leaning back slightly
+    // Layers: each bed juts out at its base and weathers back above (overhanging ledges)
+    const bed = 2.6 + 2.2 * noise1(x * 0.004 + 9);
+    const ty = (y + 3 * noise1(x * 0.012 + 2)) / bed;
+    o += (0.55 * (1 - (ty - Math.floor(ty))) - 0.25) * (1 - 0.8 * chalk);
+    // Vertical joints: narrow clefts every 6–14 m, deeper toward the foot
+    const J = 9 + 5 * noise1(x * 0.01 + 4);
+    const jx = x / J + noise1(x * 0.05 + 1) * 0.8;
+    const jd = Math.abs(jx - Math.floor(jx) - 0.5) * J; // metres from the joint
+    o -= (1.2 - 0.5 * v) * (1 - smooth(0, 1.3, jd)) * (1 - 0.6 * chalk);
+    // Buttresses and bays, some big ones standing well out from the face
+    o += (noise1(x * 0.045 + 7) - 0.5) * 2.4 * (1 - 0.5 * chalk);
+    o += Math.max(0, noise1(x * 0.018 + 21) - 0.55) * 4 * (1 - 0.3 * v) * (1 - 0.7 * chalk);
+    // Rough rock
+    o += (noise2(x * 0.35, y * 0.35) - 0.5) * 0.7 * (1 - 0.5 * chalk);
+    o += (noise2(x * 0.11 + 3, y * 0.09) - 0.5) * 1.2;
+    // The notch the waves cut at the waterline, where the sea reaches the foot
+    if (c.yBot < 1.2) o -= 1.1 * Math.exp(-(((y - 0.9) / 1.1) ** 2));
+    // The overhanging lip under the clifftop turf
+    o += 0.7 * smooth(0.82, 0.97, v);
+    return clamp(o, -2.7, Math.max(1.2, Math.min(2.2, c.line - c.back - 1)));
+  }
+
+  const mat = applyHaze(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, side: THREE.DoubleSide }), { stack: true });
+  const group = new THREE.Group();
+  for (const cols of strips) {
+    if (cols.length < 2) continue;
+    // Split long strips into chunks of ~300 m so each can be culled
+    for (let start = 0; start < cols.length - 1; start += 150) {
+      const part = cols.slice(start, Math.min(cols.length, start + 151));
+      const pos = [];
+      const idx = [];
+      const R = ROWS + 1; // the extra top row tucks under the clifftop
+      for (const c of part) {
+        for (let i = 0; i < R; i++) {
+          let y;
+          let o;
+          if (i === ROWS) {
+            y = c.yTop - 0.6;
+            o = -(c.back + 4.5);
+          } else {
+            const v = i / (ROWS - 1);
+            y = i === ROWS - 1 ? c.yTop - 0.25 : c.yBot + c.H * v;
+            o = faceOffset(c, y, v);
+          }
+          pos.push(c.x + c.nx * o, y, c.zb + c.nz * o);
+          if (i === ROWS - 1) c.lip = { x: c.x + c.nx * o, y, z: c.zb + c.nz * o };
+        }
+      }
+      // Openings for the grottoes
+      const inGrotto = (x, y) =>
+        GROTTO_SPOTS.some((gx, k) => {
+          const r = 4.2 + k * 0.6;
+          return ((x - gx) / r) ** 2 + ((y + 0.6) / r) ** 2 < 1.05;
+        });
+      for (let a = 0; a < part.length - 1; a++) {
+        for (let i = 0; i < R - 1; i++) {
+          const p0 = a * R + i;
+          const p1 = (a + 1) * R + i;
+          const cx = (pos[p0 * 3] + pos[p1 * 3]) / 2;
+          const cy = (pos[p0 * 3 + 1] + pos[p0 * 3 + 4]) / 2;
+          if (inGrotto(cx, cy)) continue;
+          idx.push(p0, p1, p0 + 1, p1, p1 + 1, p0 + 1); // facing the sea
+        }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      geo.setIndex(idx);
+      geo.computeVertexNormals();
+      group.add(new THREE.Mesh(geo, mat));
+    }
+  }
+  return group;
+}
+
 // ===== Sea stacks =====
 // [offset from the lighthouse along x, distance offshore, radius, height above water]
 const STACK_SPOTS = [
@@ -399,29 +557,138 @@ function buildSeaStack(r, h, seed) {
     const sa = Math.sin(a);
 
     let rr = r;
-    rr *= 1 + 0.35 * smooth(2, -4, y); // flared base under water
-    rr *= 1 - 0.1 * Math.sin(Math.PI * clamp(y / h, 0, 1)); // slight waist
+    rr *= 1 + 0.3 * smooth(2, -4, y); // flared base under water
+    rr *= 1 - 0.08 * Math.sin(Math.PI * clamp(y / h, 0, 1)); // slight waist
     rr *= 1 - 0.2 * Math.exp(-(((y - 0.7) / 1.3) ** 2)); // wave-cut notch at the waterline
-    rr *= 1 + 0.06 * Math.sin(y * 1.3 + seed); // layered ledges
-    rr *= 0.78 + 0.44 * cloudNoise3(ca * 1.3 + seed, y * 0.12, sa * 1.3);
-    rr *= 0.95 + 0.1 * cloudNoise3(ca * 4 + seed, y * 0.6, sa * 4);
+    // Big lumps and buttresses that run up the column (slow change with height, so no rings)
+    rr *= 0.78 + 0.44 * cloudNoise3(ca * 2.0 + seed, y * 0.035, sa * 2.0);
+    rr *= 0.94 + 0.12 * cloudNoise3(ca * 5 + seed, y * 0.12, sa * 5);
+    // Vertical fissures, and only faint, irregular bedding ledges
+    rr *= 1 - 0.14 * Math.pow(Math.max(0, Math.sin(a * 3 + seed + y * 0.02)), 12);
+    const bed = 3.2 + 0.9 * Math.sin(seed * 1.7);
+    rr *= 1 + 0.035 * (1 - (y / bed - Math.floor(y / bed)));
+    rr *= 1 - 0.15 * smooth(0.6, 1, t); // narrowing toward the crown
+    rr *= 0.8 + 0.4 * cloudNoise3(seed * 3.1, y * 0.05, 1.7); // the outline swells and pinches up its height
 
     // Rounded, jagged crown
     if (t > 0.999) y += 1.5 * (1 - rl) * r * 0.3;
     y += (cloudNoise3(ca * 2 + seed, 3.3, sa * 2) - 0.5) * 4 * smooth(0.85, 1, t);
 
-    p.setXYZ(i, ca * rr * rl, y, sa * rr * rl);
+    // A slight lean
+    const lean = Math.max(y, 0) * 0.025;
+    p.setXYZ(i, ca * rr * rl + lean * Math.cos(seed * 2.3), y, sa * rr * rl + lean * Math.sin(seed * 2.3));
   }
   geo.computeVertexNormals();
   return geo;
 }
 
 const stackMat = applyHaze(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92 }), { stack: true });
+scene.add(buildCliffWalls()); // (above: the walls share the stacks' rock material)
+scene.add(buildTalus());
+scene.add(buildTurfLip());
 for (const s of seaStacks) {
+  if (s.group === "arch") continue; // the arch is drawn as one piece in landmarks.js
   const mesh = new THREE.Mesh(buildSeaStack(s.r, s.h, s.seed), stackMat);
   mesh.position.set(s.x, 0, s.z);
   mesh.rotation.y = s.seed;
   scene.add(mesh);
+}
+
+// ===== Talus: scree, boulders and big fallen blocks at the foot of the cliff walls =====
+function rockColorAt(x, col) {
+  // The same rock as the cliff above: white chalk, golden sandstone, red rock or pale limestone
+  const chalk = Math.exp(-(((x - 1400) / 230) ** 2));
+  if (chalk > 0.5) return col.setHSL(rand(0.1, 0.13), rand(0.04, 0.1), rand(0.78, 0.9));
+  if (x < -1600) return col.setHSL(rand(0.08, 0.1), rand(0.35, 0.5), rand(0.5, 0.64));
+  if (x > 1850) return col.setHSL(rand(0.04, 0.06), rand(0.35, 0.5), rand(0.42, 0.55));
+  return col.setHSL(rand(0.08, 0.11), rand(0.12, 0.25), rand(0.55, 0.72));
+}
+function buildTalus() {
+  // Angular blocks: a coarse, lumpy icosahedron
+  const geo = new THREE.IcosahedronGeometry(1, 1);
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i);
+    const y = p.getY(i);
+    const z = p.getZ(i);
+    const k = 0.75 + 0.45 * cloudNoise3(x * 0.9 + 1, y * 0.9 + 5, z * 0.9);
+    p.setXYZ(i, x * k, y * k * 0.75, z * k);
+  }
+  geo.computeVertexNormals();
+  const mat = applyHaze(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true }), { rock: true });
+  const items = [];
+  for (let i = 0; i < CLIFF_COLS.length; i += 6 + Math.floor(rand(0, 9))) {
+    const c = CLIFF_COLS[i];
+    const tx = c.nz;
+    const tz = -c.nx;
+    const room = Math.max(1, c.line - c.back); // metres of shelf or beach in front of the wall
+    const n = 5 + Math.floor(rand(0, 8));
+    for (let k = 0; k < n; k++) {
+      // Scree piles up against the foot; the odd big block has rolled farther out
+      const big = k === 0 && Math.random() < 0.6;
+      const size = big ? rand(1.4, 3.2) : rand(0.25, 1.1) * (k < 3 ? 1.3 : 1);
+      const out = big ? rand(1, Math.min(room + 4, 10)) : Math.pow(Math.random(), 2) * Math.min(room, 6) + 0.6;
+      const along = rand(-7, 7);
+      const x = c.x + c.nx * out + tx * along;
+      const z = c.zb + c.nz * out + tz * along;
+      const y = Math.max(landHeight(x, z), -3) + size * (big ? 0.15 : 0.3);
+      items.push({ x, y, z, size, big });
+    }
+  }
+  const mesh = new THREE.InstancedMesh(geo, mat, items.length);
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const sc = new THREE.Vector3();
+  const v = new THREE.Vector3();
+  const col = new THREE.Color();
+  items.forEach((it, i) => {
+    e.set(rand(-0.4, 0.4), rand(0, Math.PI * 2), rand(-0.4, 0.4));
+    q.setFromEuler(e);
+    sc.set(it.size * rand(0.8, 1.3), it.size * rand(0.6, 1.0), it.size * rand(0.8, 1.3));
+    m.compose(v.set(it.x, it.y, it.z), q, sc);
+    mesh.setMatrixAt(i, m);
+    mesh.setColorAt(i, rockColorAt(it.x, col));
+  });
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  return mesh;
+}
+
+// ===== Turf lip: the clifftop grass running right to the edge and hanging over it =====
+function buildTurfLip() {
+  const pos = [];
+  const colors = [];
+  const idx = [];
+  const turf = new THREE.Color(0x6f8a3e);
+  const dry = new THREE.Color(0x9a9a52);
+  const soil = new THREE.Color(0x4a3a28);
+  const c3 = new THREE.Color();
+  let prev = null;
+  for (const c of CLIFF_COLS) {
+    if (!c.lip) continue;
+    const base = pos.length / 3;
+    const zA = shoreZAt(c.x) - (c.line + 7);
+    const yA = landHeight(c.x, zA) + 0.07;
+    const bx = c.lip.x + c.nx * 0.1;
+    const bz = c.lip.z + c.nz * 0.1;
+    const yB = c.yTop + 0.05;
+    pos.push(c.x, yA, zA, bx, yB, bz, bx - c.nx * 0.15, c.yTop - 0.5 - 0.3 * noise1(c.x * 0.3), bz - c.nz * 0.15);
+    const g = noise1(c.x * 0.02 + 5);
+    c3.copy(turf).lerp(dry, g * 0.6).multiplyScalar(0.85 + 0.3 * noise1(c.x * 0.2));
+    colors.push(c3.r, c3.g, c3.b, c3.r * 1.05, c3.g * 1.05, c3.b * 0.95, soil.r, soil.g, soil.b);
+    if (prev && Math.abs(c.x - prev.x) < 2.5) {
+      const a = prev.base;
+      for (let r = 0; r < 2; r++) idx.push(a + r, a + r + 1, base + r, base + r, a + r + 1, base + r + 1); // facing up
+    }
+    prev = { x: c.x, base };
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return new THREE.Mesh(geo, applyHaze(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 })));
 }
 
 // ===== Shore rocks: natural clusters at the cliff foot and around the sea stacks =====

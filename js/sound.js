@@ -9,6 +9,7 @@ const SOUND_KEY = "coastline-sound-v1";
 const sound = (() => {
   const AC = window.AudioContext || window.webkitAudioContext;
   const LEVELS = { ambience: 0.5, effects: 0.5, music: 0.16 };
+  const vol = { master: 1, ambience: 1, effects: 1, music: 1 }; // the player's volume settings (menu.js)
   let ac = null;
   let master, bus, echo, noiseBuf, brownBuf;
   let muted = false;
@@ -187,10 +188,10 @@ const sound = (() => {
     const comp = ac.createDynamicsCompressor();
     comp.threshold.value = -14;
     comp.ratio.value = 4;
-    master = gain(muted ? 0 : 0.8);
+    master = gain(muted ? 0 : 0.8 * vol.master);
     chain(master, comp, ac.destination);
     bus = {};
-    for (const k in LEVELS) chain((bus[k] = gain(LEVELS[k])), master);
+    for (const k in LEVELS) chain((bus[k] = gain(LEVELS[k] * vol[k])), master);
     // A soft echo for music, bells, horns and sonar
     echo = ac.createDelay(1);
     echo.delayTime.value = 0.36;
@@ -598,13 +599,21 @@ const sound = (() => {
       localStorage.setItem(SOUND_KEY, muted ? "off" : "on");
     } catch (e) {}
     start();
-    if (ac) set(master.gain, muted ? 0 : 0.8, 0.05);
+    if (ac) set(master.gain, muted ? 0 : 0.8 * vol.master, 0.05);
     const btn = document.querySelector('#touch-buttons [data-act="mute"]');
     if (btn) btn.textContent = muted ? "🔇" : "🔊";
     toast(muted ? "🔇 Sound off (M)" : "🔊 Sound on (M)");
   }
 
-  return { start, update, toggleMute, shutter, chime, thunder, splash: splashAt, dive, blow, isMuted: () => muted };
+  // Volume settings from the menu: kind is master, effects, ambience or music; v from 0 to 1
+  function setVolume(kind, v) {
+    vol[kind] = v;
+    if (!ac) return;
+    if (kind === "master") set(master.gain, muted ? 0 : 0.8 * v, 0.05);
+    else set(bus[kind].gain, LEVELS[kind] * v, 0.05);
+  }
+
+  return { start, update, toggleMute, setVolume, shutter, chime, thunder, splash: splashAt, dive, blow, isMuted: () => muted };
 })();
 window.addEventListener("keydown", sound.start, true);
 window.addEventListener("pointerdown", sound.start, true);

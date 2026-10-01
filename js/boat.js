@@ -391,11 +391,11 @@ function updateBoat(dt, t, controllable) {
   if (expedition.fuel <= 0) throttle = 0; // engine dead: drift and steer only
   b.throttle = throttle;
 
-  b.speed += throttle * ACCEL * dt;
+  b.speed += throttle * ACCEL * settings.boatSpeed * dt; // (boat speed: menu.js)
   b.speed -= b.speed * DRAG * dt;
   // In rough seas an ordinary hull has to slow down; the reinforced hull keeps full speed
-  const topSpeed = owned("hull") ? MAX_FORWARD : MAX_FORWARD * (1 - 0.45 * wx.storm);
-  b.speed = clamp(b.speed, MAX_REVERSE, topSpeed);
+  const topSpeed = (owned("hull") ? MAX_FORWARD : MAX_FORWARD * (1 - 0.45 * wx.storm)) * settings.boatSpeed;
+  b.speed = clamp(b.speed, MAX_REVERSE * settings.boatSpeed, topSpeed);
 
   // Rudder works best while moving, but the boat can always pivot slowly (so it can turn away from a wall)
   const steer = clamp(b.speed / 6, -1, 1);

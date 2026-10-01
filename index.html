@@ -28,7 +28,7 @@
     <div id="overlay">
       <div id="overlay-title">Press Space to start</div>
       <div id="overlay-body"></div>
-      <div class="hint">W / S throttle · A / D steer · drag to look around · scroll to zoom · C camera behind boat · F camera (then click to shoot) · Tab photos · J journal · G map · E dock · X dive · B boatyard · hold T to speed up time · M sound on/off · Space to pause</div>
+      <div class="hint">W / S throttle · A / D steer · drag to look around · scroll to zoom · C camera behind boat · F camera (then click to shoot) · Tab photos · J journal · G map · E dock · X dive · B boatyard · hold T to speed up time · M sound on/off · Space to pause · Esc settings</div>
     </div>
     <div id="photo-ui" class="hidden">
       <div id="cam-body">
@@ -63,6 +63,7 @@
       <div id="cam-card" class="hidden"></div>
     </div>
     <div id="gallery" class="hidden"></div>
+    <div id="menu" class="hidden"><div class="menu-panel"></div></div>
     <div id="journal" class="hidden"></div>
     <div id="bigmap" class="hidden"><canvas id="bigmap-canvas"></canvas><div class="bigmap-hint">G or tap to close</div></div>
     <canvas id="minimap" width="340" height="340" aria-label="Minimap"></canvas>
@@ -73,6 +74,7 @@
       <div id="touch-buttons">
         <button data-act="photo" aria-label="Take photo">📷</button>
         <button data-act="journal" aria-label="Journal">📓</button>
+        <button data-act="menu" aria-label="Settings">⚙️</button>
         <button data-act="map" aria-label="Map">🗺️</button>
         <button data-act="dock" aria-label="Dock or call a tow">⚓</button>
         <button data-act="dive" class="hidden" aria-label="Dive">🤿</button>
@@ -105,6 +107,7 @@
   <script src="js/photo.js"></script>
   <script src="js/journal.js"></script>
   <script src="js/sound.js"></script>
+  <script src="js/menu.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>

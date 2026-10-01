@@ -109,8 +109,17 @@ function updateWeather(dt, advance) {
       weather.fogTarget = weather.fogDay ? (Math.random() < 0.7 ? 1 : 0.45) : 0;
       weather.fogTimer = rand(60, 120);
     }
-    weather.fog += clamp(weather.fogTarget - weather.fog, -0.01 * dt, 0.01 * dt);
-    const step = 0.015 * dt;
+    // Weather chosen in the menu (menu.js) overrides the forecast, and settles in faster
+    const forced = WEATHER_PRESETS[settings.weather];
+    if (forced) {
+      weather.target = forced.value;
+      weather.fogTarget = forced.fog;
+      weather.timer = 30;
+      weather.fogTimer = 30;
+    }
+    const fogStep = (forced ? 0.04 : 0.01) * dt;
+    weather.fog += clamp(weather.fogTarget - weather.fog, -fogStep, fogStep);
+    const step = (forced ? 0.05 : 0.015) * dt;
     weather.value += clamp(weather.target - weather.value, -step, step);
     weather.windAngle += rand(-0.5, 0.5) * 0.05 * dt;
   }

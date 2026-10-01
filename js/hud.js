@@ -601,6 +601,7 @@ if (isTouchDevice) {
       if (act === "time") keys.add("KeyT");
       else if (act === "journal") toggleJournal();
       else if (act === "map") toggleBigMap();
+      else if (act === "menu") toggleMenu();
       else if (act === "pause") pressSpace();
       else if (act === "camera") resetOrbit();
       else if (act === "mute") sound.toggleMute();
