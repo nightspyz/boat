@@ -26,9 +26,10 @@
     <div id="overlay">
       <div id="overlay-title">Press Space to start</div>
       <div id="overlay-body"></div>
-      <div class="hint">W / S throttle · A / D steer · drag to look around · scroll to zoom · C camera behind boat · F photograph · J journal · E dock · X dive · B boatyard · hold T to speed up time · M sound on/off · Space to pause</div>
+      <div class="hint">W / S throttle · A / D steer · drag to look around · scroll to zoom · C camera behind boat · F photograph · J journal · G map · E dock · X dive · B boatyard · hold T to speed up time · M sound on/off · Space to pause</div>
     </div>
     <div id="journal" class="hidden"></div>
+    <div id="bigmap" class="hidden"><canvas id="bigmap-canvas"></canvas><div class="bigmap-hint">G or tap to close</div></div>
     <canvas id="minimap" width="340" height="340" aria-label="Minimap"></canvas>
     <div id="sonar" class="hidden"></div>
     <div id="targets"></div>
@@ -37,6 +38,7 @@
       <div id="touch-buttons">
         <button data-act="photo" aria-label="Take photo">📷</button>
         <button data-act="journal" aria-label="Journal">📓</button>
+        <button data-act="map" aria-label="Map">🗺️</button>
         <button data-act="dock" aria-label="Dock or call a tow">⚓</button>
         <button data-act="dive" class="hidden" aria-label="Dive">🤿</button>
         <button data-act="time" aria-label="Hold to speed up time">⏩</button>

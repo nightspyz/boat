@@ -162,7 +162,193 @@ const CHART_POINTS = [
 const coastLine = [];
 for (let x = -3000; x <= 3000; x += 20) coastLine.push([x, SHORE_Z + headland(x) + (noise1(x * 0.008) - 0.5) * 60]);
 
+// ===== Big map (G): the whole coast, with every place you've discovered =====
+const bigMapEl = document.getElementById("bigmap");
+const bigCanvas = document.getElementById("bigmap-canvas");
+const bm = bigCanvas.getContext("2d");
+const BIG = { x0: -2750, x1: 2750, z0: SHORE_Z - 280, z1: SHORE_Z + 160 + MAX_OFFSHORE + 60 };
+// Places to label once discovered (on top of the chartplotter's list)
+const MAP_PLACES = [
+  ...CHART_POINTS,
+  { id: "harbor", x: harbor.dockX, z: harbor.dockZ },
+  { id: "lighthouse", x: lighthouse.group.position.x, z: lighthouse.group.position.z },
+  { id: "stacks", x: seaStacks[1].x, z: seaStacks[1].z },
+  { id: "palmislet", x: ISLAND.palm.x, z: ISLAND.palm.z },
+  { id: "sealrock", x: ISLAND.seal.x, z: ISLAND.seal.z },
+  { id: "goatisland", x: ISLAND.goat.x, z: ISLAND.goat.z },
+  { id: "hiddencove", x: HIDDEN_COVE.x, z: HIDDEN_COVE.z },
+  { id: "swamp", x: SWAMP.x, z: SWAMP.z },
+].filter((p, i, all) => all.findIndex((q) => q.id === p.id) === i);
+
+function toggleBigMap(show = bigMapEl.classList.contains("hidden")) {
+  bigMapEl.classList.toggle("hidden", !show);
+  if (show) drawBigMap();
+}
+window.addEventListener("keydown", (e) => {
+  if (e.repeat) return;
+  if (e.code === "KeyG") toggleBigMap();
+  if (e.code === "Escape" && !bigMapEl.classList.contains("hidden")) toggleBigMap(false);
+});
+bigMapEl.addEventListener("pointerdown", (e) => {
+  e.stopPropagation();
+  toggleBigMap(false);
+});
+
+function drawBigMap() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const aspect = (BIG.x1 - BIG.x0) / (BIG.z1 - BIG.z0);
+  const cssW = Math.min(window.innerWidth * 0.95, window.innerHeight * 0.82 * aspect);
+  const cssH = cssW / aspect;
+  if (bigCanvas.width !== Math.round(cssW * dpr)) {
+    bigCanvas.width = Math.round(cssW * dpr);
+    bigCanvas.height = Math.round(cssH * dpr);
+    bigCanvas.style.width = cssW + "px";
+    bigCanvas.style.height = cssH + "px";
+  }
+  const W = bigCanvas.width;
+  const H = bigCanvas.height;
+  const s = W / (BIG.x1 - BIG.x0);
+  const toMap = (x, z) => [(x - BIG.x0) * s, (z - BIG.z0) * s];
+  const u = dpr; // one CSS pixel
+
+  bm.clearRect(0, 0, W, H);
+  bm.fillStyle = "#123f55";
+  bm.fillRect(0, 0, W, H);
+
+  // Land
+  const coastPath = () => {
+    bm.beginPath();
+    coastLine.forEach(([x, z], i) => (i ? bm.lineTo(...toMap(x, z)) : bm.moveTo(...toMap(x, z))));
+  };
+  bm.fillStyle = "#cdb88c";
+  coastPath();
+  bm.lineTo(W + 10, -10);
+  bm.lineTo(-10, -10);
+  bm.closePath();
+  bm.fill();
+  bm.strokeStyle = "rgba(255, 255, 255, 0.35)";
+  bm.lineWidth = 1.2 * u;
+  coastPath();
+  bm.stroke();
+  for (const I of ISLANDS) {
+    bm.beginPath();
+    bm.arc(...toMap(I.x, I.z), Math.max(3 * u, I.R * s), 0, Math.PI * 2);
+    bm.fill();
+  }
+  bm.fillStyle = "#e8dcc0";
+  for (const st of seaStacks) {
+    const [px, py] = toMap(st.x, st.z);
+    bm.fillRect(px - 1.5 * u, py - 1.5 * u, 3 * u, 3 * u);
+  }
+  // Swamp, river, town
+  bm.fillStyle = "rgba(90, 110, 60, 0.9)";
+  bm.beginPath();
+  bm.arc(...toMap(SWAMP.x, SWAMP.z), SWAMP.r * 0.8 * s, 0, Math.PI * 2);
+  bm.fill();
+  bm.strokeStyle = "#5fa8d3";
+  bm.lineCap = "round";
+  for (const seg of RIVER_SEGS) {
+    bm.lineWidth = Math.max(2 * u, seg.w * s * 2.5);
+    bm.beginPath();
+    bm.moveTo(...toMap(seg.ax, seg.az));
+    bm.lineTo(...toMap(seg.bx, seg.bz));
+    bm.stroke();
+  }
+  bm.fillStyle = "#8d8a86";
+  for (let x = TOWN.x0; x <= TOWN.x1; x += 40) {
+    const [px, py] = toMap(x, shoreZAt(x) - 70);
+    bm.fillRect(px - 3 * u, py - 5 * u, 6 * u, 5 * u);
+  }
+
+  // The edge of the map
+  bm.strokeStyle = "rgba(255, 120, 100, 0.6)";
+  bm.lineWidth = 1.5 * u;
+  bm.setLineDash([4 * u, 6 * u]);
+  const inside = coastLine.filter(([x]) => Math.abs(x) <= MAX_ALONG);
+  bm.beginPath();
+  bm.moveTo(...toMap(inside[0][0], inside[0][1]));
+  for (const [x, z] of inside) bm.lineTo(...toMap(x, z + MAX_OFFSHORE));
+  bm.lineTo(...toMap(inside[inside.length - 1][0], inside[inside.length - 1][1]));
+  bm.stroke();
+  bm.setLineDash([]);
+
+  // The Watcher's pointing arm, once found
+  if (journal.watcher.seen) {
+    const top = islandSummit(ISLAND.goat);
+    const dx = GLOW.x - top.x;
+    const dz = GLOW.z - top.z;
+    const len = Math.hypot(dx, dz);
+    bm.strokeStyle = "rgba(232, 220, 192, 0.8)";
+    bm.lineWidth = 1.5 * u;
+    bm.setLineDash([5 * u, 5 * u]);
+    bm.beginPath();
+    bm.moveTo(...toMap(top.x, top.z));
+    bm.lineTo(...toMap(top.x + (dx / len) * 900, top.z + (dz / len) * 900));
+    bm.stroke();
+    bm.setLineDash([]);
+  }
+  // Today's radio search area
+  if (expedition.searchArea && state.phase === "running" && !expedition.goalDone) {
+    bm.strokeStyle = "rgba(242, 193, 78, 0.95)";
+    bm.lineWidth = 2.5 * u;
+    bm.setLineDash([8 * u, 6 * u]);
+    bm.beginPath();
+    bm.arc(...toMap(expedition.searchArea.x, expedition.searchArea.z), expedition.searchArea.r * s, 0, Math.PI * 2);
+    bm.stroke();
+    bm.setLineDash([]);
+  }
+
+  // Everything you've discovered, with its name
+  bm.font = `${12 * u}px system-ui, sans-serif`;
+  bm.textBaseline = "middle";
+  for (const p of MAP_PLACES) {
+    if (!journal[p.id] || !journal[p.id].seen) continue;
+    const [px, py] = toMap(p.x, p.z);
+    bm.fillStyle = p.color || "#ffffff";
+    bm.beginPath();
+    bm.arc(px, py, 4 * u, 0, Math.PI * 2);
+    bm.fill();
+    const label = JOURNAL_BY_ID[p.id].name;
+    const right = px > W - 140 * u;
+    bm.textAlign = right ? "right" : "left";
+    const tx = px + (right ? -7 : 7) * u;
+    bm.lineWidth = 3 * u;
+    bm.strokeStyle = "rgba(5, 20, 30, 0.8)";
+    bm.strokeText(label, tx, py);
+    bm.fillStyle = "#ffffff";
+    bm.fillText(label, tx, py);
+  }
+
+  // Your boat
+  const b = state.boat;
+  const [bx, by] = toMap(b.x, b.z);
+  const fx = -Math.sin(b.yaw);
+  const fy = -Math.cos(b.yaw);
+  bm.fillStyle = "#ff5a4f";
+  bm.strokeStyle = "#ffffff";
+  bm.lineWidth = 1.5 * u;
+  bm.beginPath();
+  bm.moveTo(bx + fx * 11 * u, by + fy * 11 * u);
+  bm.lineTo(bx - fx * 6 * u - fy * 6 * u, by - fy * 6 * u + fx * 6 * u);
+  bm.lineTo(bx - fx * 6 * u + fy * 6 * u, by - fy * 6 * u - fx * 6 * u);
+  bm.closePath();
+  bm.fill();
+  bm.stroke();
+
+  // Title and scale bar
+  bm.fillStyle = "rgba(255, 255, 255, 0.9)";
+  bm.font = `600 ${15 * u}px system-ui, sans-serif`;
+  bm.textAlign = "left";
+  bm.textBaseline = "top";
+  bm.fillText("The coast", 12 * u, 10 * u);
+  bm.fillRect(12 * u, H - 18 * u, 1000 * s, 2 * u);
+  bm.font = `${11 * u}px system-ui, sans-serif`;
+  bm.textBaseline = "bottom";
+  bm.fillText("1 km", 12 * u, H - 22 * u);
+}
+
 function drawMinimap() {
+  if (!bigMapEl.classList.contains("hidden")) drawBigMap();
   const MAP_RANGE = owned("chart") ? 2600 : MAP_RANGE_DEFAULT; // the chartplotter zooms out
   const W = minimapEl.width;
   const c = W / 2;
@@ -410,6 +596,7 @@ if (isTouchDevice) {
       e.stopPropagation();
       if (act === "time") keys.add("KeyT");
       else if (act === "journal") toggleJournal();
+      else if (act === "map") toggleBigMap();
       else if (act === "pause") pressSpace();
       else if (act === "camera") resetOrbit();
       else if (act === "mute") sound.toggleMute();
