@@ -557,6 +557,8 @@ function updateSights(dt, t, env) {
   updateGlowPlankton(dt, t, env);
   updateOffshore(dt, t, env); // offshore.js
   updateCoastLife(dt, t, env); // coastlife.js
+  updateClifftop(dt, t, env); // clifftop.js
+  updateHinterland(dt, t, env); // hinterland.js
 }
 
 // What of all this can be seen right now (called from currentSightings in discovery.js)
@@ -575,4 +577,6 @@ function addSights(add, env) {
   if (glowActive > 80) add("biolum", null, Infinity);
   addOffshoreSights(add, env); // offshore.js
   addCoastLifeSights(add, env); // coastlife.js
+  addClifftopSights(add, env); // clifftop.js
+  addHinterlandSights(add, env); // hinterland.js
 }

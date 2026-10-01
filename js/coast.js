@@ -7,6 +7,7 @@ const haze = {
   uHazeFar: { value: 2600 },
   uHazeMax: { value: 0.8 },
   uWet: { value: 0 }, // rain: the land darkens as it gets wet
+  uWind: { value: new THREE.Vector2(0.3, 0) }, // wind over the grass: direction × strength (set in clifftop.js)
 };
 // Pale limestone like sea cliffs: ivory and buff layers, orange iron staining,
 // dark rain streaks, pitting and grain. rockBump gives the surface relief for lighting.
@@ -85,6 +86,199 @@ const PEBBLE_GLSL = /* glsl */ `
         }
 `;
 
+// ===== Fields: a patchwork of crops with hedgerows (farmland only, see grass.js), and the wind over grass =====
+const FIELD_GLSL = /* glsl */ `
+  float fhash(vec2 c) { return hash3(vec3(c, 17.0)); }
+  // A warped grid of parcels, offset row by row like real field systems. kind: 0 wheat, 1 straw,
+  // 2 fresh grass, 3 deep green, 4 ploughed, 5 mown hay. hedge: 1 on the hedgerows between fields.
+  vec3 fieldColor(vec2 p, out float kind, out float hedge) {
+    vec2 w = p + vec2(noise3(vec3(p * 0.012, 1.0)), noise3(vec3(p * 0.012, 7.0))) * 44.0 - 22.0;
+    vec2 q = mat2(0.94, -0.34, 0.34, 0.94) * w;
+    vec2 size = vec2(96.0, 68.0);
+    float row = floor(q.y / size.y);
+    q.x += fhash(vec2(row, 3.0)) * size.x;
+    vec2 cell = floor(q / size);
+    vec2 f = fract(q / size) * size;
+    float edge = min(min(f.x, size.x - f.x), min(f.y, size.y - f.y));
+    hedge = 1.0 - smoothstep(1.3, 2.6, edge);
+    kind = floor(fhash(cell) * 6.0);
+    vec3 c = kind < 1.0 ? vec3(0.80, 0.65, 0.29)
+           : kind < 2.0 ? vec3(0.86, 0.77, 0.47)
+           : kind < 3.0 ? vec3(0.28, 0.48, 0.11)
+           : kind < 4.0 ? vec3(0.16, 0.34, 0.07)
+           : kind < 5.0 ? vec3(0.50, 0.37, 0.25)
+           : vec3(0.50, 0.60, 0.22);
+    // Tractor lines along each field
+    float sd = fhash(cell + 9.0) > 0.5 ? f.x : f.y;
+    c *= 1.0 + (kind >= 5.0 ? 0.06 : 0.03) * sin(sd * 1.9);
+    c *= 0.9 + 0.18 * fhash(cell + 4.0);
+    // Hedgerows: dark green, bumpy with trees
+    float tree = smoothstep(0.5, 0.8, noise3(vec3(p * 0.16, 3.0)));
+    c = mix(c, vec3(0.15, 0.27, 0.1) * (0.75 + 0.45 * tree), hedge);
+    return c;
+  }
+  // Lush meadow green, varying over the land (the grass blades use the same colour at their roots)
+  vec3 meadowColor(vec2 p) {
+    float n = noise3(vec3(p * 0.02, 11.0));
+    float m = noise3(vec3(p * 0.11, 13.0));
+    vec3 c = mix(vec3(0.09, 0.25, 0.035), vec3(0.2, 0.38, 0.06), n);
+    return c * (0.85 + 0.3 * m);
+  }
+  // ----- Procedural grass (no geometry) -----
+  float ghash(vec2 p) {
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+  }
+  // The wind field that sways the blades: big waves moving groups together, a quicker ripple, slow
+  // wandering noise, and now and then a stronger gust sweeping a larger area
+  float grassWind(vec2 p) {
+    float ws = length(uWind);
+    vec2 wd = uWind / max(ws, 1e-3);
+    float along = dot(p, wd);
+    float windLarge = sin(along * 0.3 - uTime * (1.0 + ws * 2.0));
+    float windMedium = sin(p.x * 1.3 + p.y * 0.7 + uTime * 1.8);
+    float windNoise = noise3(vec3(p * 0.01 + uTime * 0.05, 2.0)) * 2.0 - 1.0;
+    float gust = smoothstep(0.55, 0.85, noise3(vec3(along * 0.02 - uTime * (0.3 + ws), dot(p, vec2(-wd.y, wd.x)) * 0.02, 4.0)));
+    return windLarge * 0.6 + windMedium * 0.25 + windNoise * 0.15 + gust * 1.6;
+  }
+  // Grass with real height, drawn without geometry: the view ray is marched down through a layer of
+  // blades (each cell holds one, at a random spot, with its own height), stopping at the first blade
+  // it meets. Blades taper, bend over (more towards the tip) in patches and with the wind; each test
+  // covers the stretch the ray and the bend move between one height and the next, so blades come out
+  // as continuous strokes. Smaller blade sizes fade out before a pixel gets too big for them.
+  float bladeAt(vec2 xz, float h, float H, float cell, float seed, vec2 lean, vec2 s) {
+    float tt = h / H;
+    vec2 p = (xz - lean * tt * tt) / cell;
+    vec2 f = fract(p);
+    vec2 c = mod(floor(p), 256.0); // keep the hash inputs small: far from the origin they lose precision and stripe
+    vec2 bp = vec2(ghash(c + seed), ghash(c + seed + 17.0)) * 0.6 + 0.2;
+    float bh = H * (0.45 + 0.55 * ghash(c + seed + 3.0));
+    if (h > bh) return -1.0;
+    float t = h / bh;
+    float r = 0.2 * (1.0 - 0.85 * t) + 0.02;
+    vec2 d = f - bp;
+    float k = clamp(dot(d, s) / max(dot(s, s), 1e-5), -0.5, 0.5);
+    return length(d - s * k) < r ? t : -1.0;
+  }
+  // t along the first blade hit (0 = root, 1 = tip), or -1 if the ray reaches the ground
+  float marchGrass(vec3 P, vec3 V, float H, float cell, vec2 lean, int steps) {
+    float vy = min(V.y, -0.18);
+    float dh = H / float(steps);
+    for (int i = 0; i < 16; i++) {
+      if (i >= steps) break;
+      float h = H * (1.0 - (float(i) + 0.5) / float(steps));
+      float tt = h / H;
+      vec2 xz = P.xz + V.xz * (h / vy);
+      vec2 s = (-V.xz * (dh / vy) + lean * (2.0 * tt * dh / H)) / cell;
+      float t = bladeAt(xz, h, H, cell, 0.0, lean, s);
+      if (t >= 0.0) return t;
+      t = bladeAt(xz + cell * vec2(0.5, 0.37), h, H, cell, 11.0, lean, s);
+      if (t >= 0.0) return t;
+    }
+    return -1.0;
+  }
+  // The grass's colour at this spot, built from the ground colour beneath it
+  vec3 grassAlbedo(vec3 P, vec3 base, float H, float dist) {
+    vec3 V = normalize(P - cameraPosition);
+    float ws = length(uWind);
+    vec2 wd = uWind / max(ws, 1e-3);
+    float str = clamp(ws * 1.6, 0.0, 1.0);
+    float w = grassWind(P.xz);
+    // Grass lies over in patches, each its own way; the wind pushes it further and lets it spring back
+    float la = noise3(vec3(P.xz * 0.12, 20.0)) * 9.42;
+    vec2 restLean = vec2(cos(la), sin(la)) * (0.25 + 0.25 * noise3(vec3(P.xz * 0.3, 40.0)));
+    vec2 lean = (restLean + wd * str * (0.35 + 0.35 * w)) * H;
+    float pv = noise3(vec3(P.xz * 0.6, 4.0));
+    vec3 mid = base * 0.75;
+    vec3 tip = base * (mix(1.45, 1.12, smoothstep(0.3, 0.7, base.r)) + 0.25 * pv) + vec3(0.02, 0.04, 0.0); // pale crops don't go white
+    vec3 dark = base * 0.07; // deep shade down between the blades
+    float sheen = max(w, 0.0) * 0.2 * str + (pv - 0.5) * 0.12;
+    // From far off the blades blend into this; it brightens back to the plain ground colour by 300 m
+    vec3 col = base * mix(0.72, 1.0, smoothstep(150.0, 300.0, dist)) * (1.0 + sheen);
+    // Size of a pixel on the ground, across the view
+    #if __VERSION__ >= 300
+      float fw = min(length(dFdx(P.xz)), length(dFdy(P.xz))) * 1.5;
+    #else
+      float fw = dist * 0.0015;
+    #endif
+    int steps = dist < 10.0 ? 14 : dist < 35.0 ? 10 : 6;
+    for (int k = 0; k < 3; k++) {
+      float cell = k == 0 ? 0.42 : k == 1 ? 0.14 : 0.045;
+      float wt = 1.0 - smoothstep(cell * 0.3, cell * 0.8, fw);
+      if (wt <= 0.0) continue;
+      float t = marchGrass(P, V, H, cell, lean, steps);
+      vec3 c = t >= 0.0 ? mix(mid * 0.35, tip, t * t) * (0.25 + 0.75 * t) : dark;
+      col = mix(col, c * (1.0 + sheen) * 1.1, wt);
+    }
+    return col;
+  }
+  // Wild flowers grow in drifts, each mostly one kind with a few others mixed in
+  vec3 petalColor(float pick) {
+    return pick < 0.22 ? vec3(0.95, 0.93, 0.88)    // daisies
+         : pick < 0.42 ? vec3(0.98, 0.82, 0.12)    // buttercups
+         : pick < 0.58 ? vec3(0.62, 0.38, 0.85)    // clover and thistle purple
+         : pick < 0.74 ? vec3(0.88, 0.14, 0.1)     // poppies
+         : pick < 0.88 ? vec3(0.35, 0.5, 0.95)     // cornflowers
+         : vec3(0.98, 0.55, 0.75);                 // pink campion
+  }
+  vec3 flowerColor(vec2 p, float dist, vec3 ground) {
+    float drift = smoothstep(0.52, 0.7, noise3(vec3(p * 0.04, 21.0)));
+    if (drift <= 0.0) return ground;
+    vec3 kind = petalColor(ghash(floor(p * 0.05 + 0.5) + 5.0));
+    vec3 col = mix(ground, ground * 0.6 + kind * 0.4, drift * 0.3 * smoothstep(15.0, 60.0, dist)); // far off: a tint
+    if (dist < 45.0) {
+      vec2 c = floor(p * 2.2);
+      vec2 f = fract(p * 2.2);
+      vec2 at = vec2(ghash(c + 3.0), ghash(c + 8.0)) * 0.7 + 0.15;
+      float r = 0.1 + 0.08 * ghash(c + 13.0);
+      float here = step(0.6, ghash(c + 21.0)) * drift;
+      float bloom = (1.0 - smoothstep(r * 0.6, r, length(f - at))) * here * (1.0 - smoothstep(25.0, 45.0, dist));
+      vec3 petal = ghash(c + 34.0) < 0.25 ? petalColor(ghash(c + 55.0)) : kind;
+      col = mix(col, petal * (0.85 + 0.3 * ghash(c + 89.0)), bloom);
+    }
+    return col;
+  }
+  // Gusts sweeping over grass and crops: moving bands of light and shade, with fine streaks
+  float windSheen(vec2 p) {
+    float ws = length(uWind);
+    vec2 wd = uWind / max(ws, 1e-3);
+    float along = dot(p, wd);
+    float across = dot(p, vec2(-wd.y, wd.x));
+    float gust = noise3(vec3(along * 0.03 - uTime * (0.5 + ws * 1.4), across * 0.02, 5.0));
+    float streak = noise3(vec3(along * 0.35 - uTime * (1.5 + ws * 3.0), across * 2.2, 9.0));
+    return ((gust - 0.5) * 0.4 + (streak - 0.5) * 0.1) * clamp(0.35 + ws * 1.2, 0.0, 1.0);
+  }
+`;
+const FIELDS_FRAGMENT = /* glsl */ `
+  {
+    vec2 fp = vCloudWorld.xz;
+    float fkind;
+    float fhedge;
+    float farm = vField.x * (1.0 - vRock);
+    float meadow = vField.y * (1.0 - vRock) * (1.0 - farm);
+    if (meadow > 0.01) diffuseColor.rgb = mix(diffuseColor.rgb, meadowColor(fp), meadow * 0.9);
+    if (farm > 0.01) diffuseColor.rgb = mix(diffuseColor.rgb, fieldColor(fp, fkind, fhedge), farm);
+    else { fkind = 2.0; fhedge = 0.0; }
+    // Wind over anything grassy (and the standing crops); not over bare earth, sand or rock
+    float grassy = clamp((diffuseColor.g - max(diffuseColor.r * 0.88, diffuseColor.b * 1.2)) * 8.0, 0.0, 1.0);
+    float crops = farm * (fkind < 2.0 || fkind >= 5.0 ? 1.0 : 0.0);
+    float sway = max(grassy, crops) * (1.0 - vRock);
+    diffuseColor.rgb *= 1.0 + windSheen(fp) * sway;
+    // Dense blades drawn right here, no grass geometry: meadows, grassy fields and standing crops
+    float dGrass = length(cameraPosition - vCloudWorld);
+    float blades = max(max(meadow, grassy), farm * (fkind >= 4.0 && fkind < 5.0 ? 0.0 : 1.0)) * (1.0 - fhedge * 0.6) * sway;
+    if (blades > 0.01 && dGrass < 300.0) {
+      // grass height: meadow 0.6 m; wheat 0.9, stubble 0.15, hay 0.3 on the farms
+      float gH = farm > 0.5 ? (fkind < 1.0 ? 0.9 : fkind < 2.0 ? 0.15 : fkind >= 5.0 ? 0.3 : 0.5) : 0.6;
+      diffuseColor.rgb = mix(diffuseColor.rgb, grassAlbedo(vCloudWorld, diffuseColor.rgb, gH, dGrass), blades);
+    }
+    // Wild flowers in drifts over the natural green meadows (not the farm fields): single flowers close up, a haze of colour further off
+    float wild = meadow * grassy;
+    if (wild > 0.01 && dGrass < 400.0) diffuseColor.rgb = mix(diffuseColor.rgb, flowerColor(fp, dGrass, diffuseColor.rgb), wild);
+  }
+`;
+
 // opts.terrain: per-vertex rock mask (aRock) on the cliffs; opts.stack: sea stacks (all limestone);
 // opts.rock: boulders (their own instance colour with grain); opts.city: town buildings with windows
 function applyHaze(material, opts = {}) {
@@ -101,11 +295,12 @@ function applyHaze(material, opts = {}) {
     shader.uniforms.uCloudOffset = shared.uCloudOffset;
     shader.uniforms.uSunColor = shared.uSunColor;
     shader.uniforms.uTime = shared.uTime;
+    shader.uniforms.uWind = haze.uWind;
 
     const rockValue = mode === "terrain" ? "aRock" : mode === "plain" || mode === "city" ? "0.0" : "1.0";
     shader.uniforms.uCityLights = cityLights;
     shader.vertexShader =
-      (mode === "terrain" ? "attribute float aRock;\n" : "") +
+      (mode === "terrain" ? "attribute float aRock;\nattribute vec2 aField;\nvarying vec2 vField;\n" : "") +
       "varying vec3 vCloudWorld;\nvarying float vRock;\nvarying vec3 vWorldN;\n" +
       shader.vertexShader.replace(
         "#include <fog_vertex>",
@@ -118,7 +313,7 @@ function applyHaze(material, opts = {}) {
         #endif
         vCloudWorld = (modelMatrix * cloudPos).xyz;
         vWorldN = mat3(modelMatrix) * worldN;
-        vRock = ${rockValue};`
+        vRock = ${rockValue};${mode === "terrain" ? "\n        vField = aField;" : ""}`
       );
 
     // Boulders keep their own colour with some grain; cliffs and stacks are limestone
@@ -127,11 +322,12 @@ function applyHaze(material, opts = {}) {
 
     shader.fragmentShader =
       "uniform float uHazeNear;\nuniform float uHazeFar;\nuniform float uHazeMax;\nuniform float uWet;\n" +
-      "uniform vec3 uSunDir;\nuniform float uSunVis;\nuniform vec3 uSunColor;\nuniform float uTime;\n" +
+      "uniform vec3 uSunDir;\nuniform float uSunVis;\nuniform vec3 uSunColor;\nuniform float uTime;\nuniform vec2 uWind;\n" +
       "varying vec3 vCloudWorld;\nvarying vec3 vWorldN;\nuniform float uCityLights;\n" +
       CLOUD_GLSL +
       SHORE_GLSL +
       ROCK_GLSL +
+      (mode === "terrain" ? "varying vec2 vField;\n" + FIELD_GLSL : "") +
       shader.fragmentShader
         .replace(
           "#include <color_fragment>",
@@ -148,7 +344,8 @@ function applyHaze(material, opts = {}) {
             vec3 crustCol = mix(vec3(0.97, 0.45, 0.12), vec3(0.85, 0.42, 0.58), noise3(rp * 0.3 + 9.0));
             rockCol = mix(rockCol, crustCol * (0.75 + 0.35 * noise3(rp * 5.0)), crust * 0.85);
             diffuseColor.rgb = mix(diffuseColor.rgb, rockCol, vRock);
-          }`
+          }
+          ${mode === "terrain" ? FIELDS_FRAGMENT : ""}`
         )
         .replace(
           "#include <normal_fragment_maps>",
@@ -291,7 +488,12 @@ function landHeight(x, z) {
   cliffY += smooth(45, 300, d) * (8 + 50 * fbm2(x * 0.0025, z * 0.0025));
   cliffY += (fbm2(x * 0.08, z * 0.08) - 0.5) * 1.5 * smooth(8, 20, d);
 
-  const y = coveY + (cliffY - coveY) * cliffAmount(x);
+  let y = coveY + (cliffY - coveY) * cliffAmount(x);
+  // The little lake on West Point's clifftop: a bowl, its water surface added in clifftop.js
+  if (LAKE.level !== null) {
+    const ld = Math.hypot(x - LAKE.x, z - LAKE.z);
+    if (ld < LAKE.r + 6) y = Math.min(y, lerp(LAKE.level - 2.2, y, smooth(LAKE.r * 0.7, LAKE.r + 6, ld)));
+  }
   if (x > 450 && x < 1150) return carveRiver(x, z, y);
   if (Math.abs(x - CREEK_X) < 90) return carveCreek(x, d, y);
   return y;
@@ -299,17 +501,47 @@ function landHeight(x, z) {
 
 // A creek comes down to Bridge Bay through a steep little ravine; the coast road crosses it on a bridge
 const CREEK_X = 2050;
+// The clifftop lake on West Point (see landHeight and clifftop.js)
+const LAKE = { x: -640, r: 17, level: null };
+LAKE.z = shoreZAt(LAKE.x) - 62;
+
 function carveCreek(x, d, y) {
   const off = Math.abs(x - CREEK_X + (noise1(d * 0.02) - 0.5) * 16);
   const floor = 0.6 + Math.max(0, d - 30) * 0.07;
   return Math.min(y, lerp(floor, y, smooth(5, 70, off)));
 }
 
+LAKE.level = landHeight(LAKE.x, LAKE.z) - 0.7; // the water sits a little below the surrounding meadow
+
+// The terrain mesh's grid: 5 m across, 3.5 m deep. Things that sit on the ground (roads) use terrainY to
+// rest on the mesh as drawn, which is a little coarser than landHeight itself.
+const TERRAIN_GRID = { width: 6000, depth: 1120, nx: 1200, nz: 320, centerZ: SHORE_Z - 340 };
+function terrainY(x, z) {
+  const G = TERRAIN_GRID;
+  const cw = G.width / G.nx;
+  const cd = G.depth / G.nz;
+  const fx = (x + G.width / 2) / cw;
+  const fz = (z - G.centerZ + G.depth / 2) / cd;
+  const ix = Math.floor(fx);
+  const iz = Math.floor(fz);
+  const u = fx - ix;
+  const v = fz - iz;
+  const gx = (i) => -G.width / 2 + i * cw;
+  const gz = (j) => G.centerZ - G.depth / 2 + j * cd;
+  const H = G.heights;
+  const at = (i, j) =>
+    H && i >= 0 && j >= 0 && i <= G.nx && j <= G.nz ? H[j * (G.nx + 1) + i] : landHeight(gx(i), gz(j));
+  const a = at(ix, iz);
+  const bb = at(ix, iz + 1);
+  const c = at(ix + 1, iz + 1);
+  const d = at(ix + 1, iz);
+  // The two triangles of each grid cell, as three.js's PlaneGeometry splits them (a-b-d and b-c-d)
+  return u + v <= 1 ? a + (d - a) * u + (bb - a) * v : c + (bb - c) * (1 - u) + (d - c) * (1 - v);
+}
+
 function buildShoreline() {
-  const width = 6000;
-  const depth = 1120;
-  const centerZ = SHORE_Z - 340;
-  const geo = new THREE.PlaneGeometry(width, depth, 1200, 320);
+  const { width, depth, centerZ } = TERRAIN_GRID;
+  const geo = new THREE.PlaneGeometry(width, depth, TERRAIN_GRID.nx, TERRAIN_GRID.nz);
   geo.rotateX(-Math.PI / 2);
 
   const pos = geo.attributes.position;
@@ -366,6 +598,11 @@ function buildShoreline() {
   }
   geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   geo.setAttribute("aRock", new THREE.BufferAttribute(rockMask, 1));
+  geo.setAttribute("aField", new THREE.BufferAttribute(new Float32Array(pos.count * 2), 2)); // farmland, meadow: filled in by grass.js
+  TERRAIN_GRID.heights = Float32Array.from({ length: pos.count }, (_, i) => pos.getY(i));
+  TERRAIN_GRID.colors = colors;
+  TERRAIN_GRID.rock = rockMask;
+  TERRAIN_GRID.geo = geo;
 
   const land = new THREE.Mesh(
     geo,
@@ -394,7 +631,7 @@ function buildCliffWalls() {
   for (let x = -2900; x <= 2900; x += STEP) {
     const cm = cliffAmount(x);
     const gap =
-      cm < 0.55 ||
+      cm < 0.4 ||
       (x > 450 && x < 1150) ||
       Math.abs(x - CREEK_X) < 70;
     let col = null;
@@ -421,6 +658,17 @@ function buildCliffWalls() {
     if (!strip) strips.push((strip = []));
     strip.push(col);
     CLIFF_COLS.push(col);
+  }
+  // Where a stretch of wall ends, it sinks back into the hillside instead of stopping as a loose slab
+  for (const st of strips) {
+    const x0 = st[0].x;
+    const x1 = st[st.length - 1].x;
+    for (const c of st) {
+      const dEnd = Math.min(x0 > -2898 ? c.x - x0 : 1e9, x1 < 2898 ? x1 - c.x : 1e9);
+      const k = 10 * (1 - smooth(0, 26, dEnd));
+      c.x -= c.nx * k;
+      c.zb -= c.nz * k;
+    }
   }
 
   // How far the face stands out (+) or back (−) from its base line at height y

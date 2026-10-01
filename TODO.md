@@ -74,4 +74,15 @@ Following the game plan: Explore → Discover → Decide → Return → Upgrade 
 - [x] v3.7: cheat: typing "doronii" gives $100,000
 - [x] v3.8: (same as 3.7, with a safety check in the cheat's key handling)
 - [x] v3.9: drone range 100 m from the boat
+- [x] v4.0: version number shown in the Esc menu and on the pause screen (GAME_VERSION in core.js: bump it with every zip)
+- [x] v4.1: clifftop to explore by drone: lake with ducks, trees, flowers and paths, dogs, cats, goats, a party with LED lights and beams, a dirt-bike rider, grass swaying in the wind; cyclists on the coast road; a stray iceberg offshore
+- [x] v4.2: "all around" subjects (rain, storm, fog, stars, plankton) no longer count in a photo when something is near the middle of the frame
+- [x] v4.3: photographing the Watcher statue makes it the subject (the hilltop ruins behind it rank as background)
+- [x] v4.4: clifftop coast road with cars and power lines, roads to four hill villages, radio masts with blinking lights, a pleasure pier below the town (shops, Ferris wheel, carousel, theme-park lights, lift tower); drone range back to 200 m; photo tips in the Esc menu
+- [x] v4.5: new roads are two lanes (7.4 m), level across and resting on the drawn terrain (terrainY in coast.js), with double yellow centre and white edge lines and a guardrail on the sea side; every car, the Ferris wheel, carousel, pier shops and power lines are photo subjects; the drone photographs everything the boat camera can (same zoom, cliffs and reef judged from the drone); the cliffs subject now sits on the new rock face
+- [x] v4.6: photo hint labels show less often: 6 s when a subject comes into view, then quiet for 2 min; at most two at once
+- [x] v4.7: soft street lamps along the coast road and into the villages (glow + faint light pool, no real lights); every car has headlight and tail-light glows and a soft beam at night
+- [x] v4.8: shader-only grass on the terrain (dense blades, wind waves and gusts, cloud shadows, distance LOD), patchwork fields, wild-flower drifts; road markings visible; cliff walls continue further and sink into the hillside at their ends; less repetitive gulls, seals, frogs, foghorn, ferry and town bell; chimes vary
+- [x] v4.9: grass drawn as combed blade strokes + clumps (no smeared lines), softened field/meadow edges, flowers only in natural green meadows and sparser
+- [x] v5.0: grass with real height in the terrain shader (view ray marched through bent, tapering blades in 3 sizes; lean in patches + wind; deep shade between blades), no geometry
 - [x] Fixes: stuck boat, water edges, zigzag waves (water drawn far-to-near; far ocean drawn before it), smoother cliff outline

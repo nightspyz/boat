@@ -96,6 +96,7 @@ function fbm2(x, z) {
 }
 
 // ===== State =====
+const GAME_VERSION = "5.0"; // matches the zip name (coastline-vX.Y.zip) and GAME_STATE.md
 const DAY_LENGTH = 1440; // real seconds for one full in-game day (one game minute per second)
 const TIME_FAST_FORWARD = 30; // multiplier while holding T
 const EXPEDITION_START_HOUR = 15;
@@ -167,7 +168,7 @@ function togglePause() {
   state.paused = !state.paused;
   statusEl.textContent = state.paused ? "Paused — Space to resume" : "At sea — Space to pause";
   overlayTitleEl.textContent = "Paused";
-  overlayBodyEl.innerHTML = "";
+  overlayBodyEl.innerHTML = `<div class="version-tag">Coastline v${GAME_VERSION}</div>`;
   overlayEl.classList.toggle("hidden", !state.paused);
 }
 

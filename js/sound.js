@@ -17,7 +17,9 @@ const sound = (() => {
     muted = localStorage.getItem(SOUND_KEY) === "off";
   } catch (e) {}
   const L = {}; // looping voices
-  const timers = { gull: 3, seal: 5, frog: 2, ferry: 10, fog: 4, sonar: 0, splutter: 0, bar: 0 };
+  const timers = { gull: 4, seal: 8, frog: 2, ferry: 20, fog: 6, bell: 0, sonar: 0, splutter: 0, bar: 0 };
+  let lastGull = -1;
+  let lastChime = 1;
   let rpm = 0;
   let lastFuel = 1;
   let lastHour = -1;
@@ -289,7 +291,14 @@ const sound = (() => {
       buy: [[987.8, 0], [1318.5, 0.08]],
       deny: [[330, 0], [262, 0.12]],
     }[kind] || [[880, 0]];
-    for (const [f, at] of notes) {
+    // Small changes of key so frequent chimes (photos, discoveries) don't sound identical every time
+    const keys = [1, 1.122, 0.891, 1.26];
+    let k = Math.floor(Math.random() * keys.length);
+    if (k === lastChime) k = (k + 1) % keys.length;
+    lastChime = k;
+    const key = kind === "photo" || kind === "discovery" ? keys[k] : 1;
+    for (const [f0, at] of notes) {
+      const f = f0 * key;
       tone({ f, at, dur: kind === "mystery" ? 3 : 1.2, vol: 0.07, attack: 0.004 });
       tone({ type: "triangle", f: f * 2, at, dur: 0.5, vol: 0.015 });
     }
@@ -339,20 +348,38 @@ const sound = (() => {
     if (!ac) return;
     for (let i = 0; i < 3; i++) burst({ type: "lowpass", f: 300, at: i * 0.22, dur: 0.18, vol: 0.14 - i * 0.03 });
   }
+  // Several kinds of call, never the same one twice in a row, each bird at its own pitch
+  const GULL_CALLS = [
+    [1300, 2100, 1900, 1400],
+    [1500, 1900, 1200],
+    [1100, 1800, 1700, 1650, 1200],
+    [1700, 2300, 1500],
+  ];
   function gull(w) {
-    const n = 2 + Math.floor(Math.random() * 3);
+    let k = Math.floor(Math.random() * GULL_CALLS.length);
+    if (k === lastGull) k = (k + 1) % GULL_CALLS.length;
+    lastGull = k;
+    const pitch = rand(0.8, 1.25);
+    const curve = GULL_CALLS[k].map((f) => f * pitch);
+    const n = 1 + Math.floor(Math.random() * 4);
+    const pan = clamp(w.pan + rand(-0.3, 0.3), -1, 1);
+    const far = rand(0.45, 1); // some calls from birds further off
     for (let i = 0; i < n; i++) {
-      const at = i * rand(0.28, 0.4);
-      tone({ type: "sawtooth", f: 1300, at, dur: 0.3, vol: 0.015 * w.g, pan: w.pan, curve: [1300, 2100, 1900, 1400] });
-      tone({ f: 1300, at, dur: 0.3, vol: 0.035 * w.g, pan: w.pan, curve: [1300, 2100, 1900, 1400] });
+      const at = i * rand(0.25, 0.45);
+      const dur = rand(0.22, 0.38);
+      const v = far * rand(0.75, 1.1);
+      tone({ type: "sawtooth", f: curve[0], at, dur, vol: 0.015 * w.g * v, pan, curve });
+      tone({ f: curve[0], at, dur, vol: 0.035 * w.g * v, pan, curve });
     }
   }
   function seal(w) {
-    for (let i = 0; i < 3; i++) {
-      const t = now() + i * rand(0.3, 0.45);
-      const o = osc("sawtooth", 280);
-      o.frequency.setValueAtTime(300, t);
-      o.frequency.exponentialRampToValueAtTime(190, t + 0.18);
+    const pitch = rand(0.8, 1.2);
+    const n = 1 + Math.floor(Math.random() * 4);
+    for (let i = 0; i < n; i++) {
+      const t = now() + i * rand(0.3, 0.55);
+      const o = osc("sawtooth", 280 * pitch);
+      o.frequency.setValueAtTime(300 * pitch * rand(0.95, 1.08), t);
+      o.frequency.exponentialRampToValueAtTime(190 * pitch * rand(0.9, 1.1), t + 0.18);
       const lp = filter("lowpass", 900, 3);
       const g = gain(0);
       g.gain.setValueAtTime(0, t);
@@ -511,7 +538,7 @@ const sound = (() => {
         const w = place(v.x, v.z, 1100);
         timers.ferry -= dt;
         if (w.g > 0.02 && timers.ferry <= 0) {
-          timers.ferry = rand(35, 70);
+          timers.ferry = rand(60, 130);
           horn(131, 165, 1.6, 0.09 * Math.sqrt(w.g), w);
         }
       }
@@ -531,13 +558,13 @@ const sound = (() => {
     // Wildlife
     timers.gull -= dt;
     if (timers.gull <= 0) {
-      timers.gull = rand(2, 7);
+      timers.gull = Math.random() < 0.25 ? rand(20, 45) : rand(6, 16); // now and then a longer quiet spell
       const w = place(flock.x, flock.z, 300);
-      if (env.light > 0.3 && w.g > 0.02) gull(w);
+      if (env.light > 0.3 && w.g > 0.02 && Math.random() < 0.8) gull(w);
     }
     timers.seal -= dt;
     if (timers.seal <= 0) {
-      timers.seal = rand(4, 10);
+      timers.seal = rand(14, 35);
       const w = place(ISLAND.seal.x, ISLAND.seal.z, 320);
       if (w.g > 0.02) seal(w);
     }
@@ -546,22 +573,29 @@ const sound = (() => {
     aim(L.insects, 0.025 * sw.g * (0.4 + 0.6 * night) * (1 - wx.rain), sw);
     timers.frog -= dt;
     if (timers.frog <= 0) {
-      timers.frog = rand(0.3, 1.5);
+      // Frogs call in bouts with pauses between
+      timers.frog = Math.random() < 0.12 ? rand(8, 20) : rand(0.5, 2.2);
       if (night > 0.3 && sw.g > 0.02) frog(sw);
     }
 
     // Places: the lighthouse foghorn in bad weather, the town bell on the hour
     timers.fog -= dt;
     if (timers.fog <= 0) {
-      timers.fog = 28;
+      timers.fog = rand(40, 75);
       const lp = lighthouse.group.position;
       const w = place(lp.x, lp.z, 2600);
       if ((wx.rain > 0.45 || wx.fog > 0.4) && w.g > 0.01) horn(98, 147, 2.4, 0.11 * Math.sqrt(w.g), w);
     }
     const hour = Math.floor(state.timeOfDay);
-    if (lastHour >= 0 && hour !== lastHour && !fast && hour >= 7 && hour <= 21) {
+    // The town bell rings the hour, but at most once every few minutes of real time (game hours can pass quickly)
+    timers.bell -= dt;
+    if (lastHour >= 0 && hour !== lastHour && !fast && hour >= 7 && hour <= 21 && timers.bell <= 0) {
       const w = place(TOWN_CENTER.x, TOWN_CENTER.z, 2000);
-      if (w.g > 0.01) for (let i = 0; i < (hour % 12 || 12); i++) bell(392, i * 1.7, 0.05 * Math.sqrt(w.g), bus.effects, w.pan, 3);
+      if (w.g > 0.01) {
+        timers.bell = rand(240, 360);
+        const strikes = hour === 12 || hour === 18 ? hour % 12 || 12 : Math.min(hour % 12 || 12, 3);
+        for (let i = 0; i < strikes; i++) bell(392 * rand(0.995, 1.005), i * rand(1.6, 1.9), 0.05 * Math.sqrt(w.g) * rand(0.85, 1), bus.effects, w.pan, 3);
+      }
     }
     lastHour = hour;
 

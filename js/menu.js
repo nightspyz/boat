@@ -45,7 +45,7 @@ function renderMenu() {
   const timeText = settings.timeSpeed === 0 ? "Stopped" : `${settings.timeSpeed}×`;
   menuPanel.innerHTML = `
     <h2>Paused</h2>
-    <div class="menu-sub">Esc to resume</div>
+    <div class="menu-sub">Esc to resume · Coastline v${GAME_VERSION}</div>
     <h3>🔊 Sound</h3>
     ${slider("master", "Master volume", 0, 1, 0.05, settings.master, pct(settings.master))}
     ${slider("effects", "Sound effects", 0, 1, 0.05, settings.effects, pct(settings.effects))}
@@ -61,6 +61,16 @@ function renderMenu() {
     <div class="menu-note">${
       settings.weather === "auto" ? "The weather follows each day's forecast." : "The weather stays like this until you choose Forecast again."
     }</div>
+    <details class="menu-tips"><summary>📷 Tips for better photos</summary><ul>
+      <li><b>Centre it.</b> The closer your subject is to the middle of the frame, the better the rating.</li>
+      <li><b>Fill the frame.</b> Get closer, or zoom in (mouse wheel or + −). The telephoto lens zooms to 10×.</li>
+      <li><b>Focus first.</b> Press R: when the bracket turns green, your subject is sharp.</li>
+      <li><b>Hold still.</b> Slow the boat and stop swinging the camera as you shoot. In dim light shake shows more.</li>
+      <li><b>Make the first one count.</b> Only your first photo of each subject pays: Excellent pays 1.8×, Poor only 0.35×.</li>
+      <li><b>One subject at a time.</b> Rain, stars or fog only count when nothing else is near the middle.</li>
+      <li><b>Right time, right weather.</b> Many subjects only show up at certain hours or in certain weather: the journal (J) lists the best conditions for each.</li>
+      <li><b>Go up.</b> The drone (V) finds things you can't see from the water: the clifftop lake, the party, roads and villages.</li>
+    </ul></details>
     <button class="menu-resume" data-act="resume">Resume</button>`;
 }
 

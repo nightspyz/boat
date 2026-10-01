@@ -15,6 +15,9 @@ function targetMarker(i) {
   }
   return targetPool[i];
 }
+const HINT_SHOW = 6; // seconds a hint label stays up
+const HINT_QUIET = 120; // seconds before the same subject is hinted again
+const hintTimes = {};
 function updatePhotoTargets(env, refresh) {
   const show = state.phase === "running" && !state.paused;
   if (refresh && show) {
@@ -26,7 +29,20 @@ function updatePhotoTargets(env, refresh) {
       const d = s.pos.distanceTo(camera.position);
       if (!best[s.id] || d < best[s.id].d) best[s.id] = { s, d };
     }
-    targetList = Object.values(best).slice(0, 6);
+    // Hints are brief: each label shows for a few seconds when its subject comes into view, then
+    // stays quiet for a couple of minutes; never more than two at once
+    const now = waveTime;
+    targetList = Object.values(best)
+      .sort((a, b) => a.d - b.d)
+      .filter(({ s }) => {
+        const h = (hintTimes[s.id] = hintTimes[s.id] || { until: 0, quiet: 0 });
+        if (now < h.until) return true;
+        if (now < h.quiet) return false;
+        h.until = now + HINT_SHOW;
+        h.quiet = now + HINT_SHOW + HINT_QUIET;
+        return true;
+      })
+      .slice(0, 2);
   }
   let n = 0;
   if (show) {
@@ -180,6 +196,10 @@ const MAP_PLACES = [
   { id: "swamp", x: SWAMP.x, z: SWAMP.z },
   { id: "beachwreck", x: BEACH_WRECK.x, z: BEACH_WRECK.z },
   { id: "oilrig", x: RIG.x, z: RIG.z },
+  { id: "lake", x: LAKE.x, z: LAKE.z },
+  { id: "pier", x: PIER.x, z: PIER.z1 },
+  ...VILLAGES.map((v) => ({ id: "villages", x: v.x, z: v.z })),
+  { id: "party", x: PARTY.x, z: PARTY.z },
   { id: "windfarm", x: WIND_FARM.x, z: WIND_FARM.z },
   { id: "databuoy", x: DATA_BUOY.x, z: DATA_BUOY.z },
 ].filter((p, i, all) => all.findIndex((q) => q.id === p.id) === i);

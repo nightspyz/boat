@@ -1,6 +1,6 @@
 # Game State
 
-_Version 3.9 · last updated 2026-10-01_
+_Version 5.0 · last updated 2026-10-01_
 
 Each download is named with its version (`coastline-v1.0.zip`, `coastline-v1.1.zip`, …).
 
@@ -84,6 +84,8 @@ The core loop and the upgrade loop are playable and saved between sessions. The 
 | `js/sights.js` | Extra photo subjects: orcas, blue shark, manta ray, cormorants, pelicans, fishing trawler with gulls, hot-air balloon, stranded coaster, rainbow, glowing plankton |
 | `js/offshore.js` | Jellyfish swarms, floating debris, navigation buoys and a weather buoy, the offshore oil rig, wind turbines (offshore farm + eastern hills); SEA_OBSTACLES for boat collisions |
 | `js/coastlife.js` | Beach camps (tents, campfires with people at night), horse riders on the harbor beach, shooting stars (showers every third night), a comet some nights |
+| `js/hinterland.js` | West coast road (cars, power lines), branch roads to 4 hill villages, radio masts, the pleasure pier below the town (shops, Ferris wheel, carousel, bulbs, lift tower) |
+| `js/clifftop.js` | West Point clifftop (drone): lake (LAKE in coast.js carves it) with ducks, trees, flowers, paths; dogs, cats, goats; LED party; dirt-bike track; wind-swayed grass (also on the lighthouse headland); cyclists on the coast road; a drifting iceberg |
 | `js/expedition.js` | Journal entries, daily tasks, money, boatyard, saving, briefing and summary screens |
 | `js/discovery.js` | Toasts, spotting and photographing (visibility rules), journal screen, sonar and diving |
 | `js/hud.js` | Photo highlights, minimap, touch controls |

@@ -45,10 +45,9 @@ function currentSightings(env) {
   if (reefBodies.visible) for (const s of schools) add("reeffish", at(s.x, s.y, s.z), 45, UNDER);
 
   add("harbor", at(harbor.pierX, 2, (harbor.pierZ0 + harbor.pierZ1) / 2), 600, { fog: true, lit: true });
-  if (cliffAmount(b.x) > 0.7) {
-    const shoreZ = SHORE_Z + headland(b.x) + (noise1(b.x * 0.008) - 0.5) * 60;
-    add("cliffs", at(b.x, 20, shoreZ - 25), 400);
-  }
+  // (from the drone, things are judged from where the drone is, not the boat)
+  const vx = photo.droneMode ? camera.position.x : b.x;
+  if (cliffAmount(vx) > 0.7) add("cliffs", at(vx, 15, shoreZAt(vx) - Math.max(cliffLine(vx) - 4, 1)), 400); // on the rock face
   add("lighthouse", lighthouse.group.position.clone().setY(lighthouse.group.position.y + 20), 900, { lit: true });
   for (const s of seaStacks) if (s.group === "lighthouse") add("stacks", at(s.x, 15, s.z), 500);
   for (const s of seaStacks) if (s.group === "sisters") add("sisters", at(s.x, s.h * 0.5, s.z), 650);
@@ -59,11 +58,21 @@ function currentSightings(env) {
   add("bridge", at(BRIDGE.x, BRIDGE.y - 4, BRIDGE.z), 700);
 
   // The reef has to be in view: look at the sea floor ahead of the boat
-  const fx = -Math.sin(b.yaw);
-  const fz = -Math.cos(b.yaw);
-  const rx = b.x + fx * 18;
-  const rz = b.z + fz * 18;
-  if (inland(rx, rz) > -170 && cliffAmount(rx) > 0.5 && seaBed(rx, rz) < -2) add("reef", at(rx, seaBed(rx, rz), rz), 40, UNDER);
+  let rx;
+  let rz;
+  let reefRange = 40;
+  if (photo.droneMode) {
+    // From the drone: wherever the camera is looking down onto the water
+    const dir = camera.getWorldDirection(new THREE.Vector3());
+    const t = dir.y < -0.05 ? Math.min(-camera.position.y / dir.y, 150) : 30;
+    rx = camera.position.x + dir.x * t;
+    rz = camera.position.z + dir.z * t;
+    reefRange = 160;
+  } else {
+    rx = b.x - Math.sin(b.yaw) * 18;
+    rz = b.z - Math.cos(b.yaw) * 18;
+  }
+  if (inland(rx, rz) > -170 && cliffAmount(rx) > 0.5 && seaBed(rx, rz) < -2) add("reef", at(rx, seaBed(rx, rz), rz), reefRange, UNDER);
 
   add("wreck", at(WRECK.x, WRECK.y + 2, WRECK.z), 70, UNDER);
   add("sailboat", at(SAILBOAT.x, SAILBOAT.y + 1, SAILBOAT.z), 60, UNDER);
@@ -77,7 +86,7 @@ function currentSightings(env) {
   add("sealrock", at(sI.x, 3, sI.z), 900);
   add("goatisland", at(gI.x, 10, gI.z), 1200);
   const gTop = islandSummit(gI);
-  add("ruins", at(gTop.x, gTop.y + 3, gTop.z), 550);
+  add("ruins", at(gTop.x, gTop.y + 3, gTop.z), 550, { minor: true }); // background: the statue in front of it wins
   add("watcher", at(gTop.x, gTop.y + 7, gTop.z), 550); // the statue's chest
   for (const s of seals) add("seals", s.g.position.clone().setY(s.g.position.y + 0.5), 350);
   for (const g of goats) add("goats", g.g.position.clone().setY(g.g.position.y + 0.8), 320);

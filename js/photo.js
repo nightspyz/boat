@@ -74,10 +74,10 @@ const photo = (() => {
   // The camera drone: flies from the boat with its own camera (V). Battery recharges aboard.
   const drone = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, battery: 180, warnedAt: -99, lowWarned: false };
   const DRONE_BATTERY = 180;
-  const DRONE_RANGE = 100; // metres from the boat, in any direction (height counts too)
+  const DRONE_RANGE = 200; // metres from the boat, in any direction (height counts too)
   const droneHud = document.getElementById("drone-hud");
 
-  const maxZoom = () => (api.droneMode ? 4 : owned("camera") ? 10 : 4);
+  const maxZoom = () => (owned("camera") ? 10 : 4); // the drone's camera too
   // How far a subject can be and still make a photo: farther as you zoom in
   // (up to the subject's normal range, or 60% beyond it with the telephoto lens)
   const rangeAt = (z) => (r) => Math.min(r * (owned("camera") ? 1.6 : 1), Math.max(100, r * 0.35) * Math.pow(z, 0.85));
@@ -275,7 +275,8 @@ const photo = (() => {
       if (seen.has(s.id) || !isVisible(s, lastEnv, 0.92, rangeAt(zoom))) continue;
       seen.add(s.id);
       const p = s.pos ? toScreen(s.pos) : null;
-      list.push({ s, p, off: p ? Math.hypot(p.x, p.y) : 0.8 });
+      // (background subjects like the ruins round the statue rank behind whatever stands in front)
+      list.push({ s, p, off: (p ? Math.hypot(p.x, p.y) : 0.8) + (s.minor ? 0.35 : 0) });
     }
     return list.sort((a, b) => a.off - b.off);
   }
@@ -318,7 +319,10 @@ const photo = (() => {
     snapEl.classList.add("snap");
     setTimeout(() => snapEl.classList.remove("snap"), 90);
     shotsToday++;
-    const frame = inFrame();
+    // Things all around you (rain, stars, a storm, fog…) only count when nothing in particular is
+    // near the middle of the frame: aim at a whale in the rain and it's a photo of the whale
+    let frame = inFrame();
+    if (frame.some((f) => f.p && f.off < 0.55)) frame = frame.filter((f) => f.s.pos);
     let earned = 0;
     let main = null;
     const b = api.droneMode ? camera.position : state.boat; // where it was taken from

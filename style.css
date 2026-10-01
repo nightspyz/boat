@@ -1573,3 +1573,29 @@ body:not(.drone-mode) .drone-only {
 .dh-read .low {
   color: #ff6b5a;
 }
+
+.version-tag {
+  font-size: 12px;
+  opacity: 0.6;
+  letter-spacing: 0.05em;
+}
+
+/* Photo tips in the Esc menu */
+.menu-tips {
+  margin-top: 16px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+}
+.menu-tips summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.menu-tips ul {
+  margin: 8px 0 2px 18px;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+.menu-tips li {
+  margin-bottom: 5px;
+}
