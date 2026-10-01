@@ -348,6 +348,7 @@ const TURN_RATE = 0.9; // rad/s at full steering authority
 function clearance(x, z) {
   let c = Math.min(-seaBed(x, z) - 1.5, -inland(x, z) - 3);
   for (const s of seaStacks) c = Math.min(c, Math.hypot(x - s.x, z - s.z) - (s.clear ?? s.r * 1.6 + 3));
+  for (const o of SEA_OBSTACLES) c = Math.min(c, Math.hypot(x - o.x, z - o.z) - o.r - 2.5); // buoys, the rig, turbines (offshore.js)
   const pier = Math.max(Math.abs(x - harbor.pierX) - 4, harbor.pierZ0 - z, z - (harbor.pierZ1 + 3));
   return Math.min(c, pier);
 }

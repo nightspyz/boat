@@ -73,7 +73,8 @@ const photo = (() => {
 
   const maxZoom = () => (owned("camera") ? 10 : 4);
   // How far a subject can be and still make a photo: farther as you zoom in
-  const rangeAt = (z) => (r) => Math.min(r, Math.max(100, r * 0.35) * Math.pow(z, 0.85));
+  // (up to the subject's normal range, or 60% beyond it with the telephoto lens)
+  const rangeAt = (z) => (r) => Math.min(r * (owned("camera") ? 1.6 : 1), Math.max(100, r * 0.35) * Math.pow(z, 0.85));
   const canUse = () => state.phase === "running" && !state.paused;
 
   function enter() {
@@ -183,8 +184,10 @@ const photo = (() => {
     const dark = 1 - clamp(lastEnv.lightLevel, 0, 1); // slower shutter in low light: shake shows more
     const centred = f.p ? clamp(1 - f.off / 1.1, 0, 1) : 1;
     const dist = f.s.pos ? Math.hypot(f.s.pos.x - b.x, f.s.pos.z - b.z) : 0;
-    const fill = f.s.pos ? clamp(1.35 - dist / rangeAt(zoom)(f.s.range), 0, 1) : 1;
-    const steady = clamp(1 - (Math.abs(b.speed) / 16 + look.speed * 1.5) * (1 + 1.5 * dark), 0, 1);
+    // How big it looks in the frame: zooming in makes it look closer
+    const fill = f.s.pos ? clamp(1.3 - dist / zoom / Math.max(100, f.s.range * 0.35), 0, 1) : 1;
+    // Long lenses magnify shake a little too
+    const steady = clamp(1 - (Math.abs(b.speed) / 16 + look.speed * 1.5) * (1 + 1.5 * dark) * (1 + 0.05 * zoom), 0, 1);
     const focused = !f.s.pos || focus.id === f.s.id ? 1 : 0.5;
     const q = 0.3 * centred + 0.3 * fill + 0.2 * steady + 0.2 * focused;
     if (q >= 0.82) return { name: "Excellent", mult: 1.3 };

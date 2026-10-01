@@ -59,4 +59,7 @@ Following the game plan: Explore → Discover → Decide → Return → Upgrade 
 - [x] v2.2: 10 new photo subjects (orcas, blue shark, manta ray, cormorants, pelicans, trawler + gulls, hot-air balloon, stranded coaster, rainbow, glowing plankton); the journal is now a two-page photo book built from your own photos
 - [x] v2.3: raising the camera (F) keeps facing the way you were already looking
 - [x] v2.4: right click also puts the camera down
+- [x] v2.5: jellyfish, floating debris, buoys, weather buoy, offshore oil rig, offshore wind farm and hilltop turbines (all photographable, buoys/rig/turbines solid); stars glitter and the aurora shimmers on the sea at night; new journal section "Man-made at sea"
+- [x] v2.6: star reflections on the sea toned way down (fewer, fainter, mostly toward the horizon)
+- [x] v2.7: telephoto upgrade now means zoom to 10× and 60% more photo range; photo quality counts how big the subject looks (zoom helps); description updated
 - [x] Fixes: stuck boat, water edges, zigzag waves (water drawn far-to-near; far ocean drawn before it), smoother cliff outline

@@ -17,6 +17,7 @@ const JOURNAL = [
   { id: "manta", cat: "Wildlife", name: "Manta ray" },
   { id: "cormorants", cat: "Wildlife", name: "Cormorant roost" },
   { id: "pelicans", cat: "Wildlife", name: "Pelican squadron" },
+  { id: "jellyfish", cat: "Wildlife", name: "Moon jellyfish swarm" },
   { id: "harbor", cat: "Coast & islands", name: "Harbor Cove" },
   { id: "cliffs", cat: "Coast & islands", name: "Limestone cliffs" },
   { id: "lighthouse", cat: "Coast & islands", name: "Lighthouse" },
@@ -43,6 +44,12 @@ const JOURNAL = [
   { id: "smallplane", cat: "People & boats", name: "Sightseeing plane" },
   { id: "trawler", cat: "People & boats", name: "Fishing trawler" },
   { id: "balloon", cat: "People & boats", name: "Hot-air balloon" },
+  { id: "buoys", cat: "People & boats", name: "Channel buoys" },
+  { id: "databuoy", cat: "People & boats", name: "Weather buoy" },
+  { id: "flotsam", cat: "People & boats", name: "Floating debris" },
+  { id: "oilrig", cat: "People & boats", name: "Offshore oil rig" },
+  { id: "windfarm", cat: "People & boats", name: "Offshore wind farm" },
+  { id: "windmills", cat: "Coast & islands", name: "Hilltop wind turbines" },
   { id: "swimmers", cat: "People & boats", name: "Swimmers" },
   { id: "surfers", cat: "People & boats", name: "Surfers" },
   { id: "sunbathers", cat: "People & boats", name: "Sunbathers" },
@@ -94,6 +101,7 @@ const JOURNAL_VALUES = {
   crate: 150, bottle: 250, amphora: 400,
   orcas: 450, shark: 250, manta: 300, cormorants: 120, pelicans: 150, beachwreck: 250, trawler: 100, balloon: 200,
   biolum: 400, rainbow: 250,
+  jellyfish: 180, buoys: 50, databuoy: 150, flotsam: 40, oilrig: 250, windfarm: 200, windmills: 120,
 };
 for (const e of JOURNAL) e.value = JOURNAL_VALUES[e.id] || 0;
 const photoValue = (entry) => Math.round(entry.value * 0.5);
@@ -437,7 +445,7 @@ const forecastName = () => (expedition.forecastFog ? "Fog" : weatherName(expedit
 const UPGRADES = [
   { id: "binoculars", icon: "🔭", name: "Binoculars", price: 600, desc: "Spot wildlife and places from 50% farther away." },
   { id: "tank", icon: "⛽", name: "Long-range fuel tank", price: 800, desc: "50% more fuel: reach farther and stay out longer." },
-  { id: "camera", icon: "📷", name: "Telephoto camera", price: 700, desc: "Photograph from 50% farther away, and anywhere in the frame." },
+  { id: "camera", icon: "📷", name: "Telephoto camera", price: 700, desc: "Camera zooms to 10× (instead of 4×): photograph things 60% farther away, and fill the frame for better-rated shots." },
   { id: "radio", icon: "📻", name: "Marine radio", price: 500, desc: "A morning report narrows each task to a search area on your map." },
   { id: "chart", icon: "🧭", name: "Chartplotter", price: 900, desc: "Your map zooms out and shows everything you have discovered." },
   { id: "hull", icon: "🛡️", name: "Reinforced hull", price: 1000, desc: "Full speed and normal fuel use in rough seas and storms." },

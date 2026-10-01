@@ -555,6 +555,7 @@ function updateSights(dt, t, env) {
   updateBalloon(dt, t, env);
   updateRainbow();
   updateGlowPlankton(dt, t, env);
+  updateOffshore(dt, t, env); // offshore.js
 }
 
 // What of all this can be seen right now (called from currentSightings in discovery.js)
@@ -571,4 +572,5 @@ function addSights(add, env) {
   add("beachwreck", at(BEACH_WRECK.x, BEACH_WRECK.y, BEACH_WRECK.z), 900);
   if (rainbow.strength > 0.35) add("rainbow", rainbow.top.clone(), Infinity, { lit: true });
   if (glowActive > 80) add("biolum", null, Infinity);
+  addOffshoreSights(add, env); // offshore.js
 }

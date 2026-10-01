@@ -4,7 +4,7 @@
 
 const BOOK_SECTIONS = [
   { name: "Marine mammals", icon: "🐾", ids: ["dolphins", "seals", "whale", "orcas"] },
-  { name: "Fish & sea life", icon: "🐟", ids: ["flyingfish", "reeffish", "turtles", "manta", "shark"] },
+  { name: "Fish & sea life", icon: "🐟", ids: ["flyingfish", "reeffish", "turtles", "manta", "shark", "jellyfish"] },
   { name: "Birds & land animals", icon: "🕊️", ids: ["gulls", "cormorants", "pelicans", "goats"] },
   {
     name: "Landmarks",
@@ -12,6 +12,7 @@ const BOOK_SECTIONS = [
     ids: ["harbor", "cliffs", "lighthouse", "stacks", "palmislet", "sealrock", "goatisland", "town", "townlights", "delta", "swamp", "arch", "hiddencove", "waterfall", "sisters", "grottoes", "bridge", "beachwreck"],
   },
   { name: "Boats & people", icon: "⛵", ids: ["sailboats", "tourboat", "ferry", "tanker", "coastguard", "trawler", "smallplane", "balloon", "swimmers", "surfers", "sunbathers"] },
+  { name: "Man-made at sea", icon: "⚙️", ids: ["buoys", "databuoy", "flotsam", "oilrig", "windfarm", "windmills"] },
   { name: "Underwater", icon: "🤿", ids: ["reef", "wreck", "sailboat", "freighter", "deepwreck", "temple", "colossus"] },
   { name: "Weather & sky", icon: "☁️", ids: ["sunset", "rainbow", "rain", "storm", "fog", "stars", "aurora", "airliner"] },
   { name: "Mysteries", icon: "★", ids: ["ruins", "watcher", "glow", "biolum"] },
@@ -80,6 +81,13 @@ const BOOK_INFO = {
   watcher: ["🗿", "A statue on Goat Island, one arm pointing out to sea…", "Daytime", "Any", "Where does it point?"],
   glow: ["✨", "A strange light beneath the eastern cliffs, only after dark.", "Night", "Any", "Something is down there."],
   biolum: ["💙", "Plankton that flash blue when disturbed. The bow wave and wake turn to blue fire.", "Dark nights", "Calm", "A calm, dark night in the bay east of the harbor. Keep moving."],
+  jellyfish: ["🪼", "Moon jellyfish pulsing along together. At night they glow faintly.", "Day, or glowing at night", "Calm", "Swarms drift by in deeper water now and then. Look down over the side."],
+  buoys: ["🛟", "Navigation buoys: red and green marking the harbor channel, and marks warning of hazards.", "Any (they flash at night)", "Any", "Off the harbor, the arch, the Seven Sisters and Seal Rock."],
+  databuoy: ["🛟", "A big yellow weather buoy measuring wind and waves, with solar panels and a flashing light.", "Any time", "Any", "Far out, straight off the harbor."],
+  flotsam: ["🗑️", "Crates, barrels, bottles and a lost fishing net, drifting with the wind.", "Daytime", "Any", "Scattered across open water. Most are small: get close or zoom."],
+  oilrig: ["🛢️", "An offshore oil platform standing on four legs, with a derrick and a burning gas flare.", "Dusk or night is most dramatic", "Any", "Far out to the east. The flare and lights carry for kilometres at night."],
+  windfarm: ["🌬️", "Twelve offshore wind turbines, turning to face the wind.", "Any time", "Any", "Far offshore to the west. Red lights blink on them at night."],
+  windmills: ["🌬️", "A row of wind turbines along the eastern hills.", "Any time", "Any", "On the hills behind the eastern cliffs."],
   bell: ["🔔", "A ship's bell, green with age.", "", "", "Recovered on a dive."],
   coin: ["🪙", "A coin from the sunken temple.", "", "", "Recovered on a dive."],
   logbook: ["📖", "A captain's logbook, sealed in oilskin.", "", "", "Recovered on a dive."],

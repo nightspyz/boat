@@ -1,6 +1,6 @@
 # Game State
 
-_Version 2.4 · last updated 2026-10-01_
+_Version 2.7 · last updated 2026-10-01_
 
 Each download is named with its version (`coastline-v1.0.zip`, `coastline-v1.1.zip`, …).
 
@@ -82,6 +82,7 @@ The core loop and the upgrade loop are playable and saved between sessions. The 
 | `js/town.js` | River water, reeds and trees, clifftop town, beach life |
 | `js/traffic.js` | Sea and air traffic |
 | `js/sights.js` | Extra photo subjects: orcas, blue shark, manta ray, cormorants, pelicans, fishing trawler with gulls, hot-air balloon, stranded coaster, rainbow, glowing plankton |
+| `js/offshore.js` | Jellyfish swarms, floating debris, navigation buoys and a weather buoy, the offshore oil rig, wind turbines (offshore farm + eastern hills); SEA_OBSTACLES for boat collisions |
 | `js/expedition.js` | Journal entries, daily tasks, money, boatyard, saving, briefing and summary screens |
 | `js/discovery.js` | Toasts, spotting and photographing (visibility rules), journal screen, sonar and diving |
 | `js/hud.js` | Photo highlights, minimap, touch controls |

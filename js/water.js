@@ -231,6 +231,7 @@ const water = new THREE.Mesh(
       ${NOISE_GLSL}
       ${CLOUD_GLSL}
       ${SHORE_GLSL}
+      uniform float uAurora;
       uniform vec3 uCamPos;
       uniform vec3 uDeep;
       uniform vec3 uShallow;
@@ -406,6 +407,29 @@ const water = new THREE.Mesh(
         float sd = max(dot(r, uSunDir), 0.0);
         col += uSunColor * (pow(sd, 900.0) * 8.0 + pow(sd, 90.0) * 0.35) * uSunVis * cShadow;
         col += vec3(0.7, 0.8, 1.0) * pow(max(dot(r, -uSunDir), 0.0), 300.0) * 1.2 * uStars;
+
+        // The night sky mirrored in the sea: stars glitter on the moving waves, the aurora lays
+        // long wavering streaks of green toward you. Stronger than strict physics, for the look.
+        if ((uStars > 0.01 || uAurora > 0.01) && dist < 900.0) {
+          vec3 rr = normalize(vec3(r.x, max(r.y, 0.015), r.z));
+          float mirror = (0.35 + 0.65 * fres) * (1.0 - smoothstep(500.0, 900.0, dist));
+          vec3 cell = floor(rr * 260.0);
+          float sn = fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+          float tw = 0.55 + 0.45 * sin(uTime * 3.0 + fract(sn * 977.0) * 6.2832); // never negative
+          col += vec3(0.85, 0.9, 1.0) * step(0.997, sn) * tw * uStars * 1.0 * (0.1 + 0.9 * fres) * smoothstep(0.0, 0.05, rr.y); // a few faint glints, mostly farther out
+          // and the faint glow of the starry sky itself
+          col += vec3(0.05, 0.07, 0.12) * uStars * mirror;
+          if (uAurora > 0.001) {
+            float az = atan(rr.x, -rr.z);
+            float north = 1.0 - smoothstep(0.4, 1.7, abs(az));
+            float edge = 0.06 + 0.05 * sin(az * 3.0 + uTime * 0.07);
+            float h = rr.y;
+            float vert = smoothstep(edge * 0.5, edge + 0.03, h) * (1.0 - smoothstep(edge + 0.04, edge + 0.45, h));
+            float curtain = smoothstep(0.35, 0.75, fbm(vec2(az * 4.0 + sin(az * 7.0 + uTime * 0.15) * 0.4, uTime * 0.05)));
+            vec3 ac = mix(vec3(0.15, 1.0, 0.55), vec3(0.65, 0.25, 0.95), smoothstep(edge + 0.08, edge + 0.35, h));
+            col += ac * curtain * vert * north * uAurora * 0.45 * mirror;
+          }
+        }
 
         // (Foam is drawn by its own layer, on top of the fish and corals: see foamLayer below)
 
